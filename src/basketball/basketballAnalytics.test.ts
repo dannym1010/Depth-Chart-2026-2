@@ -12,17 +12,22 @@ import {
   bballAccessFromStaff,
   canAccessBasketballWorkspace,
   convertTeamSnapEventsToBasketballGames,
+  filterBasketballScheduleEvents,
+  inferSeasonYearForMonth,
   isBasketballGameEvent,
   parseBasketballHudlCsv,
   parseBasketballRosterInput,
+  parseBasketballScheduleInput,
+  parseTeamSnapApiEventsJson,
   possessionsToFootballPlays,
+  resolveBasketballEventDate,
   shouldRouteToBasketballOnLogin,
   stripLegacyDemoData,
   switchBasketballSeason,
 } from './storage.ts';
 import { normalizeWeek, weekKeyFromFolder } from '../filmroom/folderRoutes.ts';
 import { detectSportFromUrl } from '../sportMode.ts';
-import type { ParsedTeamSnapEvent } from '../utils/teamSnapSync.ts';
+import { parseTeamSnapCSV, type ParsedTeamSnapEvent } from '../utils/teamSnapSync.ts';
 import type { BasketballGame, BasketballStaffMember } from './types.ts';
 
 const game1: BasketballGame = SAMPLE_BASKETBALL_STATE.teamData['bball-10u-boys'].games[0];
@@ -471,4 +476,151 @@ test('switchBasketballSeason separates 2025-26 and 2026-27 rosters, games, and T
   const team2627 = switchedBack2627.teams.find((t) => t.id === switchedBack2627.activeTeamId);
   assert.equal(team2627?.calendarUrl, 'https://ical-cdn.teamsnap.com/team_schedule/2026-27.ics');
   assert.equal(switchedBack2627.teamData[switchedBack2627.activeTeamId].roster[0].firstName, 'Carter');
+});
+
+test('resolveBasketballEventDate infers 2025 vs 2026 for yearless dates in 2025-26 season', () => {
+  assert.equal(inferSeasonYearForMonth('2025-26', 11), 2025);
+  assert.equal(inferSeasonYearForMonth('2025-26', 12), 2025);
+  assert.equal(inferSeasonYearForMonth('2025-26', 1), 2026);
+  assert.equal(inferSeasonYearForMonth('2025-26', 3), 2026);
+
+  assert.equal(resolveBasketballEventDate('Sat, Dec 6', '2025-26'), '2025-12-06');
+  assert.equal(resolveBasketballEventDate('Nov 15', '2025-26'), '2025-11-15');
+  assert.equal(resolveBasketballEventDate('Jan 17', '2025-26'), '2026-01-17');
+  assert.equal(resolveBasketballEventDate('12/14', '2025-26'), '2025-12-14');
+  assert.equal(resolveBasketballEventDate('Dec 6, 2026', '2025-26'), '2026-12-06');
+});
+
+test('parseBasketballScheduleInput imports pasted TeamSnap Schedule Past rows with scores and skips practices', () => {
+  const pasted = [
+    'Date\tTime\tEvent\tLocation\tResult',
+    'Sat, Dec 6\t10:00 AM\tvs Yorktown\tMahopac MS\tW 48-41',
+    'Sun, Dec 14\t1:30 PM\t@ Somers\tSomers HS\tL 35-42',
+    'Tue, Dec 16\t6:30 PM\tTeam Practice\tAustin Road Gym',
+    'Sat, Jan 17\nW 52-40\nvs Carmel\n11:00 AM\nLakeview Gym',
+    '12/21 Lakeland',
+  ].join('\n');
+
+  const events = parseBasketballScheduleInput(pasted, '2025-26');
+  assert.equal(events.length, 5);
+
+  const games = convertTeamSnapEventsToBasketballGames(events, [], 'replace', {
+    gamesOnly: true,
+    season: '2025-26',
+  });
+
+  assert.equal(games.length, 4);
+  assert.deepEqual(
+    games.map((g) => ({
+      date: g.date,
+      opponent: g.opponent,
+      homeAway: g.homeAway,
+      ourScore: g.ourScore,
+      opponentScore: g.opponentScore,
+    })),
+    [
+      { date: '2025-12-06', opponent: 'Yorktown', homeAway: 'Home', ourScore: 48, opponentScore: 41 },
+      { date: '2025-12-14', opponent: 'Somers', homeAway: 'Away', ourScore: 35, opponentScore: 42 },
+      { date: '2026-01-17', opponent: 'Carmel', homeAway: 'Home', ourScore: 52, opponentScore: 40 },
+      { date: '2025-12-21', opponent: 'Lakeland', homeAway: 'Home', ourScore: undefined, opponentScore: undefined },
+    ]
+  );
+
+  // Plain opponent list with no 'vs' keyword imports cleanly under Games Only
+  const plainList = parseBasketballScheduleInput('12/06 Yorktown\n01/10 Brewster', '2025-26');
+  const filteredPlain = filterBasketballScheduleEvents(plainList, true);
+  assert.equal(filteredPlain.length, 2);
+  assert.equal(filteredPlain[0].date, '2025-12-06');
+  assert.equal(filteredPlain[1].date, '2026-01-10');
+});
+
+test('parseTeamSnapCSV classifies vs/@ titles as games even without Opponent column or literal Game word', () => {
+  const csv = [
+    'Date,Start Time,Title,Location',
+    '12/06/2025,10:00 AM,Mahopac vs Carmel,Mahopac MS',
+    '12/14/2025,1:30 PM,Mahopac @ Brewster,Brewster HS',
+    '12/16/2025,6:30 PM,Team Practice,Austin Road Gym',
+  ].join('\n');
+
+  const csvRes = parseTeamSnapCSV(csv);
+  assert.equal(csvRes.events[0].type, 'game');
+  assert.equal(csvRes.events[0].opponent, 'Carmel');
+  assert.equal(csvRes.events[0].locationType, 'home');
+  assert.equal(csvRes.events[1].type, 'game');
+  assert.equal(csvRes.events[1].opponent, 'Brewster');
+  assert.equal(csvRes.events[1].locationType, 'away');
+  assert.equal(csvRes.events[2].type, 'practice');
+
+  const bballGames = convertTeamSnapEventsToBasketballGames(
+    parseBasketballScheduleInput(csv, '2025-26'),
+    [],
+    'replace',
+    { gamesOnly: true, season: '2025-26' }
+  );
+  assert.equal(bballGames.length, 2);
+  assert.equal(bballGames[0].date, '2025-12-06');
+  assert.equal(bballGames[1].homeAway, 'Away');
+});
+
+test('parseTeamSnapApiEventsJson parses historical TeamSnap API v3 events/search Collection+JSON with scores', () => {
+  const apiPayload = {
+    collection: {
+      items: [
+        {
+          data: [
+            { name: 'id', value: 1001 },
+            { name: 'is_game', value: true },
+            { name: 'formatted_title', value: 'vs. Yorktown Royals' },
+            { name: 'opponent_name', value: 'Yorktown Royals' },
+            { name: 'start_date', value: '2025-12-06T10:00:00' },
+            { name: 'location_name', value: 'Mahopac Middle School' },
+            { name: 'is_home', value: true },
+            { name: 'points_for_team', value: 48 },
+            { name: 'points_for_opponent', value: 41 },
+          ],
+        },
+        {
+          data: [
+            { name: 'id', value: 1002 },
+            { name: 'is_game', value: false },
+            { name: 'formatted_title', value: 'Thursday Practice' },
+            { name: 'start_date', value: '2025-12-11T18:30:00' },
+            { name: 'location_name', value: 'Austin Road Gym' },
+          ],
+        },
+        {
+          data: [
+            { name: 'id', value: 1003 },
+            { name: 'is_game', value: true },
+            { name: 'formatted_title', value: '@ Somers Tuskers' },
+            { name: 'opponent_name', value: 'Somers Tuskers' },
+            { name: 'start_date', value: '2026-01-18T13:00:00' },
+            { name: 'location_name', value: 'Somers HS' },
+            { name: 'is_home', value: false },
+            { name: 'formatted_results', value: 'L 35-42' },
+          ],
+        },
+      ],
+    },
+  };
+
+  const events = parseTeamSnapApiEventsJson(apiPayload, '2025-26');
+  assert.equal(events.length, 3);
+
+  const games = convertTeamSnapEventsToBasketballGames(events, [], 'replace', {
+    gamesOnly: true,
+    season: '2025-26',
+  });
+  assert.equal(games.length, 2);
+  assert.equal(games[0].date, '2025-12-06');
+  assert.equal(games[0].opponent, 'Yorktown Royals');
+  assert.equal(games[0].homeAway, 'Home');
+  assert.equal(games[0].ourScore, 48);
+  assert.equal(games[0].opponentScore, 41);
+
+  assert.equal(games[1].date, '2026-01-18');
+  assert.equal(games[1].opponent, 'Somers Tuskers');
+  assert.equal(games[1].homeAway, 'Away');
+  assert.equal(games[1].ourScore, 35);
+  assert.equal(games[1].opponentScore, 42);
 });

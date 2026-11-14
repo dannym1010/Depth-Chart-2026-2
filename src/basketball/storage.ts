@@ -3,7 +3,12 @@ import type { Play } from '../hudlScout/types/football';
 import { cleanFirestoreData, getFirebaseServices, isFirestoreQuotaPaused, isReadOnlySession, parseCSV, safeJSONParse, safeJSONSet } from '../services/storageService';
 import { splitCsvLine } from '../utils/rosterCsv';
 import { isProgramAdminEmail, PROGRAM_ADMIN_EMAILS } from '../utils/staffAccess';
-import type { ParsedTeamSnapEvent } from '../utils/teamSnapSync';
+import {
+  parseTeamSnapCSV,
+  parseTeamSnapICS,
+  parseTeamSnapText,
+  type ParsedTeamSnapEvent,
+} from '../utils/teamSnapSync';
 import type {
   BasketballGame,
   BasketballPlayer,
@@ -1045,28 +1050,601 @@ export function parseTeamSnapMembersResponse(json: any): Omit<BasketballPlayer, 
   return out;
 }
 
+const BASKETBALL_NON_GAME_RE =
+  /\b(practice|shootaround|open\s*gym|workout|training|clinic|tryout|try-out|meeting|banquet|photo\s*day|walkthrough|walk-through)\b/i;
+
+const MONTH_NAME_TO_NUM: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
+/**
+ * Given a basketball season label (e.g. '2025-26') and calendar month (1..12),
+ * return the inferred calendar year (Aug-Dec -> start year, Jan-Jul -> end year).
+ */
+export function inferSeasonYearForMonth(season: string | undefined, month1to12: number): number {
+  const norm = normalizeSeasonLabel(season);
+  const rangeMatch = norm.match(/(\d{4})\s*-\s*(\d{2,4})/);
+  if (rangeMatch) {
+    const startYear = parseInt(rangeMatch[1], 10);
+    const rawEnd = rangeMatch[2];
+    const endYear =
+      rawEnd.length === 2
+        ? Math.floor(startYear / 100) * 100 + parseInt(rawEnd, 10)
+        : parseInt(rawEnd, 10);
+    return month1to12 >= 8 ? startYear : endYear;
+  }
+  const singleYear = norm.match(/\b(20\d{2})\b/);
+  if (singleYear) return parseInt(singleYear[1], 10);
+  return 2026;
+}
+
+/**
+ * Resolve a raw date string from TeamSnap CSV/text/API into YYYY-MM-DD,
+ * using the active season (e.g. '2025-26') when the year is omitted.
+ */
+export function resolveBasketballEventDate(rawDateStr: string, season?: string): string {
+  const clean = String(rawDateStr || '').trim();
+  if (!clean) return '';
+
+  // ISO date or datetime: preserve explicit YYYY-MM-DD (including 2025-12-06T10:00:00)
+  const isoMatch = clean.match(/(\d{4})-(\d{2})-(\d{2})(?=T|\b)/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  // MM/DD/YYYY or MM/DD/YY
+  const fullSlash = clean.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/);
+  if (fullSlash) {
+    const m = fullSlash[1].padStart(2, '0');
+    const d = fullSlash[2].padStart(2, '0');
+    const y = fullSlash[3].length === 2 ? `20${fullSlash[3]}` : fullSlash[3];
+    return `${y}-${m}-${d}`;
+  }
+
+  // Yearless MM/DD
+  const shortSlash = clean.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+  if (shortSlash) {
+    const mNum = parseInt(shortSlash[1], 10);
+    const dNum = parseInt(shortSlash[2], 10);
+    if (mNum >= 1 && mNum <= 12 && dNum >= 1 && dNum <= 31) {
+      const y = inferSeasonYearForMonth(season, mNum);
+      return `${y}-${String(mNum).padStart(2, '0')}-${String(dNum).padStart(2, '0')}`;
+    }
+  }
+
+  // Month name with optional weekday prefix and optional 4-digit year (e.g. "Sat, Dec 6" or "Nov 15, 2025")
+  const textMonth = clean.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*((?:19|20)\d{2}))?\b/i
+  );
+  if (textMonth) {
+    const monthKey = textMonth[1].toLowerCase().replace(/\./g, '');
+    const mNum = MONTH_NAME_TO_NUM[monthKey] || MONTH_NAME_TO_NUM[monthKey.slice(0, 3)];
+    const dNum = parseInt(textMonth[2], 10);
+    if (mNum && dNum >= 1 && dNum <= 31) {
+      const y = textMonth[3] ? parseInt(textMonth[3], 10) : inferSeasonYearForMonth(season, mNum);
+      return `${y}-${String(mNum).padStart(2, '0')}-${String(dNum).padStart(2, '0')}`;
+    }
+  }
+
+  return '';
+}
+
+function normalizeBasketballTime(raw: string): string {
+  const clean = String(raw || '').trim();
+  if (!clean) return '18:00';
+  const ampmMatch = clean.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?/i);
+  if (!ampmMatch) return '18:00';
+  let h = parseInt(ampmMatch[1], 10);
+  const m = ampmMatch[2];
+  const ampm = (ampmMatch[3] || '').toLowerCase();
+  if (ampm === 'pm' && h < 12) h += 12;
+  if (ampm === 'am' && h === 12) h = 0;
+  return `${String(h).padStart(2, '0')}:${m}`;
+}
+
+function extractScoresFromText(text: string): { ourScore?: number; opponentScore?: number } {
+  const clean = String(text || '');
+  if (!clean) return {};
+
+  // "W 48-41", "L 35-42", "T 40-40"
+  const prefixMatch = clean.match(/\b([WLT])\s*[:\-]?\s*(\d{1,3})\s*[-–]\s*(\d{1,3})\b/i);
+  if (prefixMatch) {
+    const code = prefixMatch[1].toUpperCase();
+    const a = parseInt(prefixMatch[2], 10);
+    const b = parseInt(prefixMatch[3], 10);
+    if (code === 'W') return { ourScore: Math.max(a, b), opponentScore: Math.min(a, b) };
+    if (code === 'L') return { ourScore: Math.min(a, b), opponentScore: Math.max(a, b) };
+    return { ourScore: a, opponentScore: b };
+  }
+
+  // "48-41 W", "35-42 L", "48-41 (W)"
+  const suffixMatch = clean.match(/\b(\d{1,3})\s*[-–]\s*(\d{1,3})\s*\(?\s*([WLT])\s*\)?\b/i);
+  if (suffixMatch) {
+    const a = parseInt(suffixMatch[1], 10);
+    const b = parseInt(suffixMatch[2], 10);
+    const code = suffixMatch[3].toUpperCase();
+    if (code === 'W') return { ourScore: Math.max(a, b), opponentScore: Math.min(a, b) };
+    if (code === 'L') return { ourScore: Math.min(a, b), opponentScore: Math.max(a, b) };
+    return { ourScore: a, opponentScore: b };
+  }
+
+  // Explicit "Final: 48-41" or "Score: 48-41"
+  const labeledMatch = clean.match(/\b(?:final|score|result)\s*[:\-]?\s*(\d{1,3})\s*[-–]\s*(\d{1,3})\b/i);
+  if (labeledMatch) {
+    return {
+      ourScore: parseInt(labeledMatch[1], 10),
+      opponentScore: parseInt(labeledMatch[2], 10),
+    };
+  }
+
+  return {};
+}
+
+const DATE_FRAGMENT_RE =
+  /\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+)?(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*(?:19|20)\d{2})?)\b/i;
+const TIME_FRAGMENT_RE = /\b(\d{1,2}:\d{2}\s*(?:am|pm)?)(?:\s*(?:EST|EDT|CST|CDT|PST|PDT))?\b/i;
+
+function cleanMatchupLineForOpponent(line: string): {
+  opponent?: string;
+  locationType: 'home' | 'away' | 'neutral';
+  explicitGame: boolean;
+} {
+  let clean = line
+    .replace(/\b[WLT]\s*[:\-]?\s*\d{1,3}\s*[-–]\s*\d{1,3}\b/gi, '')
+    .replace(/\b\d{1,3}\s*[-–]\s*\d{1,3}\s*\(?\s*[WLT]\s*\)?\b/gi, '')
+    .replace(/\b(?:final|score|result)\s*[:\-]?\s*\d{1,3}\s*[-–]\s*\d{1,3}\b/gi, '')
+    .replace(/\b(?:TBD|Cancelled|Canceled|Postponed)\b/gi, '')
+    .replace(/^[,\-:\s|]+|[,\-:\s|]+$/g, '')
+    .trim();
+
+  if (!clean) return { opponent: undefined, locationType: 'home', explicitGame: false };
+
+  const atIdx = clean.indexOf('@');
+  if (atIdx !== -1) {
+    const opp = clean.slice(atIdx + 1).trim();
+    return { opponent: opp || clean.replace(/@/g, '').trim(), locationType: 'away', explicitGame: true };
+  }
+
+  const vsMatch = clean.match(/\b(?:vs\.?|v\.?)\s+(.+)$/i);
+  if (vsMatch && vsMatch[1]?.trim()) {
+    return { opponent: vsMatch[1].trim(), locationType: 'home', explicitGame: true };
+  }
+
+  const atWordMatch = clean.match(/(?:^|\s)at\s+(.+)$/i);
+  if (atWordMatch && atWordMatch[1]?.trim() && !BASKETBALL_NON_GAME_RE.test(clean)) {
+    return { opponent: atWordMatch[1].trim(), locationType: 'away', explicitGame: true };
+  }
+
+  if (/\b(tournament|playoff|championship|jamboree|scrimmage|game)\b/i.test(clean)) {
+    return {
+      opponent: clean.replace(/^game\s+/i, '').trim() || clean,
+      locationType: 'home',
+      explicitGame: true,
+    };
+  }
+
+  return { opponent: clean, locationType: 'home', explicitGame: false };
+}
+
+function finalizeScheduleTextBlock(
+  date: string,
+  segments: string[],
+  idx: number
+): ParsedTeamSnapEvent {
+  const joined = segments.join(' · ');
+  const scores = extractScoresFromText(joined);
+
+  let startTime = '18:00';
+  for (const seg of segments) {
+    const tm = seg.match(TIME_FRAGMENT_RE);
+    if (tm) {
+      startTime = normalizeBasketballTime(tm[1]);
+      break;
+    }
+  }
+
+  const meaningful: string[] = [];
+  let explicitLocation = '';
+
+  for (const rawSeg of segments) {
+    let seg = rawSeg
+      .replace(TIME_FRAGMENT_RE, '')
+      .replace(/\b(?:EST|EDT|CST|CDT|PST|PDT)\b/gi, '')
+      .replace(/^[,\-:\s|•]+|[,\-:\s|•]+$/g, '')
+      .trim();
+    if (!seg) continue;
+
+    if (/^(?:location|venue|gym|field|court)\s*:/i.test(seg)) {
+      explicitLocation = seg.replace(/^(?:location|venue|gym|field|court)\s*:/i, '').trim();
+      continue;
+    }
+    if (/^(?:home|away|neutral)$/i.test(seg)) {
+      continue;
+    }
+    // Skip segments that were purely scores like "W 48-41"
+    const withoutScoreOnly = seg
+      .replace(/\b[WLT]\s*[:\-]?\s*\d{1,3}\s*[-–]\s*\d{1,3}\b/gi, '')
+      .replace(/\b\d{1,3}\s*[-–]\s*\d{1,3}\s*\(?\s*[WLT]\s*\)?\b/gi, '')
+      .replace(/\b(?:final|score|result)\s*[:\-]?/gi, '')
+      .trim();
+    if (!withoutScoreOnly) continue;
+
+    meaningful.push(seg);
+  }
+
+  let primarySeg =
+    meaningful.find((s) => /\b(vs\.?|v\.?|game|tournament|scrimmage|playoff)\b|@/i.test(s)) ||
+    meaningful.find((s) => /\bat\s+/i.test(s) && !BASKETBALL_NON_GAME_RE.test(s)) ||
+    meaningful[0] ||
+    'Team Event';
+
+  const isNonGame = BASKETBALL_NON_GAME_RE.test(joined);
+  const matchup = cleanMatchupLineForOpponent(primarySeg);
+  const otherSegments = meaningful.filter((s) => s !== primarySeg);
+  const location =
+    explicitLocation ||
+    otherSegments.find((s) => !extractScoresFromText(s).ourScore) ||
+    'TBD Gym';
+
+  const hasScore = scores.ourScore !== undefined && scores.opponentScore !== undefined;
+  const type: ParsedTeamSnapEvent['type'] = isNonGame
+    ? 'practice'
+    : /\bscrimmage\b/i.test(joined)
+    ? 'scrimmage'
+    : matchup.explicitGame || hasScore || Boolean(matchup.opponent)
+    ? 'game'
+    : 'practice';
+
+  const homeAwayHint = /\baway\b/i.test(joined)
+    ? 'away'
+    : /\bneutral\b/i.test(joined)
+    ? 'neutral'
+    : matchup.locationType;
+
+  return {
+    id: `ts_bball_${Date.now()}_${idx}`,
+    type,
+    title: primarySeg,
+    date,
+    startTime,
+    location,
+    locationType: homeAwayHint,
+    opponent: type === 'practice' ? undefined : matchup.opponent || primarySeg,
+    focusOrNotes: hasScore ? `Final ${scores.ourScore}-${scores.opponentScore}` : undefined,
+    week: '1',
+    raw: hasScore ? { ourScore: scores.ourScore, opponentScore: scores.opponentScore } : undefined,
+  };
+}
+
+/**
+ * Parse iCal, CSV, or pasted TeamSnap Schedule ("Upcoming" or "Past") text into events,
+ * inferring missing years from the active season (e.g. Dec -> 2025, Jan -> 2026 for '2025-26').
+ */
+export function parseBasketballScheduleInput(
+  content: string,
+  season?: string
+): ParsedTeamSnapEvent[] {
+  const trimmed = String(content || '').trim();
+  if (!trimmed) return [];
+
+  if (trimmed.includes('BEGIN:VCALENDAR') || trimmed.includes('BEGIN:VEVENT')) {
+    return parseTeamSnapICS(trimmed).events;
+  }
+
+  const lines = trimmed
+    .split(/\r\n|\n|\r/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return [];
+
+  // CSV path (comma-separated, with or without header row)
+  const firstCommaCols = splitCsvLine(lines[0]);
+  const looksLikeCsvHeader =
+    /\b(date|time|event|title|opponent|location|type|start|result|score)\b/i.test(lines[0]) &&
+    !DATE_FRAGMENT_RE.test(lines[0]);
+
+  if (lines[0].includes(',') && (looksLikeCsvHeader || (lines.length > 1 && firstCommaCols.length >= 3))) {
+    if (looksLikeCsvHeader) {
+      const headers = firstCommaCols.map((h) => h.toLowerCase().replace(/["']/g, '').trim());
+      const findCol = (preds: RegExp[]) => headers.findIndex((h) => preds.some((re) => re.test(h)));
+      const dateCol = findCol([/start\s*date/, /\bdate\b/]);
+      const timeCol = findCol([/start\s*time/, /\btime\b/]);
+      const typeCol = findCol([/\btype\b/, /is\s*game/]);
+      const titleCol = findCol([/formatted/, /\bevent\b/, /\btitle\b/, /\bname\b/, /summary/]);
+      const oppCol = findCol([/opponent/]);
+      const locCol = findCol([/location/, /venue/, /gym/, /field/]);
+      const haCol = findCol([/home.*away/, /home_or_away/]);
+      const resCol = findCol([/result/, /score/, /final/]);
+      const pfCol = findCol([/points?\s*for/, /our\s*score/, /^pf$/]);
+      const paCol = findCol([/points?\s*against/, /opp.*score/, /^pa$/]);
+      const notesCol = findCol([/note/, /description/, /detail/]);
+
+      const out: ParsedTeamSnapEvent[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = splitCsvLine(lines[i]);
+        if (cols.length === 0) continue;
+        const rawDate = dateCol !== -1 ? cols[dateCol] : cols[0];
+        const resolvedDate = resolveBasketballEventDate(rawDate || '', season);
+        if (!resolvedDate) continue;
+
+        const rawTime = timeCol !== -1 ? cols[timeCol] : '';
+        const rawTitle = titleCol !== -1 ? cols[titleCol] : cols[1] || '';
+        const rawOpp = oppCol !== -1 ? cols[oppCol] : '';
+        const rawType = typeCol !== -1 ? cols[typeCol] : '';
+        const rawLoc = locCol !== -1 ? cols[locCol] : '';
+        const rawHa = haCol !== -1 ? cols[haCol] : '';
+        const rawRes = resCol !== -1 ? cols[resCol] : '';
+        const rawNotes = notesCol !== -1 ? cols[notesCol] : '';
+
+        const combinedText = `${rawTitle} ${rawType} ${rawOpp} ${rawRes} ${rawNotes}`;
+        const scoreParsed = extractScoresFromText(`${rawRes} ${rawTitle} ${rawNotes}`);
+        let ourScore = scoreParsed.ourScore;
+        let opponentScore = scoreParsed.opponentScore;
+        if (ourScore === undefined && pfCol !== -1 && paCol !== -1) {
+          const pf = parseInt(cols[pfCol] || '', 10);
+          const pa = parseInt(cols[paCol] || '', 10);
+          if (!Number.isNaN(pf) && !Number.isNaN(pa)) {
+            ourScore = pf;
+            opponentScore = pa;
+          }
+        }
+
+        const matchup = cleanMatchupLineForOpponent(rawOpp || rawTitle || rawRes);
+        const isExplicitNonGame =
+          BASKETBALL_NON_GAME_RE.test(`${rawType} ${rawTitle}`) && !rawOpp && rawType.toLowerCase() !== 'game';
+        const hasScore = ourScore !== undefined && opponentScore !== undefined;
+        const isGame =
+          !isExplicitNonGame &&
+          (rawType.toLowerCase() === 'game' ||
+            rawType.toLowerCase() === 'true' ||
+            /\b(game|tournament|playoff|championship)\b/i.test(combinedText) ||
+            Boolean(rawOpp) ||
+            matchup.explicitGame ||
+            hasScore);
+
+        const locationType: 'home' | 'away' | 'neutral' = /\baway\b/i.test(`${rawHa} ${rawLoc}`)
+          ? 'away'
+          : /\bneutral\b/i.test(rawHa)
+          ? 'neutral'
+          : matchup.locationType;
+
+        out.push({
+          id: `ts_csv_${Date.now()}_${i}`,
+          type: /\bscrimmage\b/i.test(combinedText) ? 'scrimmage' : isGame ? 'game' : 'practice',
+          title: rawTitle || (rawOpp ? `vs ${rawOpp}` : 'Event'),
+          date: resolvedDate,
+          startTime: normalizeBasketballTime(rawTime),
+          location: rawLoc || 'TBD Gym',
+          locationType,
+          opponent: rawOpp || matchup.opponent || rawTitle || 'TBD Opponent',
+          focusOrNotes: rawNotes || (hasScore ? `Final ${ourScore}-${opponentScore}` : undefined),
+          week: '1',
+          raw: hasScore ? { ourScore, opponentScore } : undefined,
+        });
+      }
+      if (out.length > 0) return out;
+    }
+
+    // Fallback to shared CSV parser when structure is generic, fixing yearless dates
+    const csvRes = parseTeamSnapCSV(trimmed);
+    if (csvRes.events.length > 0) {
+      return csvRes.events.map((ev) => ({
+        ...ev,
+        date: resolveBasketballEventDate(ev.date, season) || ev.date,
+      }));
+    }
+  }
+
+  // Freeform / tab-separated / multi-line TeamSnap Web UI ("Schedule -> Past" or copy-pasted table)
+  const blocks: { date: string; segments: string[] }[] = [];
+  let currentBlock: { date: string; segments: string[] } | null = null;
+
+  for (const line of lines) {
+    // Skip column header lines copied from TeamSnap table
+    if (/^(?:date|time|event|opponent|location|result|past\s*events?|upcoming\s*events?)[\s\t,|/]*$/i.test(line)) {
+      continue;
+    }
+    if (line.includes('\t') && /^(?:date|time|event|location|result)\b/i.test(line) && !DATE_FRAGMENT_RE.test(line)) {
+      continue;
+    }
+
+    const dateMatch = line.match(DATE_FRAGMENT_RE);
+    if (dateMatch) {
+      const resolved = resolveBasketballEventDate(dateMatch[0], season);
+      if (resolved) {
+        if (currentBlock) blocks.push(currentBlock);
+        const parts = line.includes('\t')
+          ? line
+              .split('\t')
+              .map((p) => p.replace(DATE_FRAGMENT_RE, '').trim())
+              .filter(Boolean)
+          : [
+              line
+                .replace(DATE_FRAGMENT_RE, '')
+                .replace(/^(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?[,\s\-]*/i, '')
+                .replace(/^[,\-:\s|•]+|[,\-:\s|•]+$/g, '')
+                .trim(),
+            ].filter(Boolean);
+
+        currentBlock = { date: resolved, segments: parts };
+        continue;
+      }
+    }
+
+    if (currentBlock) {
+      if (line.includes('\t')) {
+        currentBlock.segments.push(
+          ...line
+            .split('\t')
+            .map((p) => p.trim())
+            .filter(Boolean)
+        );
+      } else {
+        currentBlock.segments.push(line);
+      }
+    }
+  }
+  if (currentBlock) blocks.push(currentBlock);
+
+  if (blocks.length > 0) {
+    return blocks.map((b, i) => finalizeScheduleTextBlock(b.date, b.segments, i));
+  }
+
+  // Final fallback to shared parseTeamSnapText
+  const txtRes = parseTeamSnapText(trimmed);
+  return txtRes.events.map((ev) => ({
+    ...ev,
+    date: resolveBasketballEventDate(ev.date, season) || ev.date,
+  }));
+}
+
+/** Parse a TeamSnap API v3 Collection+JSON `/v3/events/search` (or plain array) payload into events. */
+export function parseTeamSnapApiEventsJson(payload: any, season?: string): ParsedTeamSnapEvent[] {
+  const out: ParsedTeamSnapEvent[] = [];
+  const items: any[] = Array.isArray(payload?.collection?.items)
+    ? payload.collection.items
+    : Array.isArray(payload)
+    ? payload
+    : [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const fields: Record<string, any> = {};
+    if (Array.isArray(item?.data)) {
+      for (const datum of item.data) {
+        if (datum?.name) fields[String(datum.name)] = datum.value;
+      }
+    } else if (item && typeof item === 'object') {
+      Object.assign(fields, item);
+    }
+
+    const startRaw = String(fields.start_date || fields.date || '').trim();
+    if (!startRaw) continue;
+
+    let dateStr = '';
+    let timeStr = '18:00';
+    if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(startRaw) && (startRaw.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(startRaw))) {
+      const dt = new Date(startRaw);
+      if (!Number.isNaN(dt.getTime())) {
+        dateStr = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+        timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+      }
+    }
+    if (!dateStr) {
+      dateStr = resolveBasketballEventDate(startRaw, season);
+      const tMatch = startRaw.match(/T(\d{2}:\d{2})/);
+      if (tMatch) timeStr = tMatch[1];
+    }
+    if (!dateStr) continue;
+
+    const formattedTitle = String(
+      fields.formatted_title || fields.formatted_title_for_multi_team || fields.name || fields.title || ''
+    ).trim();
+    const oppName = String(fields.opponent_name || '').trim();
+    const gameType = String(fields.game_type || '').trim();
+    const isGameFlag = fields.is_game === true || fields.is_game === 'true';
+    const notes = String(fields.notes || '').trim();
+    const formattedResults = String(fields.formatted_results || '').trim();
+    const combinedLabel = `${formattedTitle} ${gameType} ${notes}`.trim();
+
+    const isPractice = !isGameFlag && BASKETBALL_NON_GAME_RE.test(combinedLabel);
+    const type: ParsedTeamSnapEvent['type'] = isPractice
+      ? 'practice'
+      : gameType.toLowerCase().includes('scrimmage') || /\bscrimmage\b/i.test(combinedLabel)
+      ? 'scrimmage'
+      : isGameFlag || Boolean(oppName) || /\b(vs\.?|v\.?|game|tournament|playoff)\b|@/i.test(combinedLabel)
+      ? 'game'
+      : 'practice';
+
+    const homeOrAwayRaw = String(fields.home_or_away || '').toLowerCase();
+    const isHomeExplicit = fields.is_home === true || fields.is_home === 'true' || homeOrAwayRaw === 'home';
+    const isAwayExplicit =
+      fields.is_home === false ||
+      fields.is_home === 'false' ||
+      homeOrAwayRaw === 'away' ||
+      formattedTitle.includes('@');
+    const locationType: 'home' | 'away' | 'neutral' =
+      homeOrAwayRaw === 'neutral'
+        ? 'neutral'
+        : isAwayExplicit && !isHomeExplicit
+        ? 'away'
+        : 'home';
+
+    const extractedScores = extractScoresFromText(`${formattedResults} ${formattedTitle}`);
+    let ourScore =
+      fields.points_for_team !== null && fields.points_for_team !== undefined && fields.points_for_team !== ''
+        ? Number(fields.points_for_team)
+        : extractedScores.ourScore;
+    let opponentScore =
+      fields.points_for_opponent !== null && fields.points_for_opponent !== undefined && fields.points_for_opponent !== ''
+        ? Number(fields.points_for_opponent)
+        : extractedScores.opponentScore;
+    if (Number.isNaN(ourScore)) ourScore = undefined;
+    if (Number.isNaN(opponentScore)) opponentScore = undefined;
+
+    const matchup = cleanMatchupLineForOpponent(oppName || formattedTitle);
+    const hasScore = ourScore !== undefined && opponentScore !== undefined;
+
+    out.push({
+      id: `ts_api_${fields.id ?? i}`,
+      type,
+      title: formattedTitle || (oppName ? `vs ${oppName}` : 'Team Event'),
+      date: dateStr,
+      startTime: timeStr,
+      location: String(fields.location_name || fields.additional_location_details || '').trim() || 'TBD Gym',
+      locationType,
+      opponent: oppName || matchup.opponent || formattedTitle || 'TBD Opponent',
+      focusOrNotes: notes || (formattedResults || (hasScore ? `Final ${ourScore}-${opponentScore}` : undefined)),
+      week: '1',
+      raw: hasScore ? { ourScore, opponentScore } : undefined,
+    });
+  }
+
+  return out;
+}
+
 /** Return true when a parsed TeamSnap event represents a game, scrimmage, or tournament (not a practice/meeting). */
 export function isBasketballGameEvent(ev: ParsedTeamSnapEvent): boolean {
   const text = `${ev.title || ''} ${ev.focusOrNotes || ''}`.toLowerCase();
-  if (
-    /\b(practice|shootaround|open\s*gym|workout|training|clinic|tryout|try-out|meeting|banquet|photo\s*day|walkthrough|walk-through)\b/i.test(
-      text
-    )
-  ) {
+  if (BASKETBALL_NON_GAME_RE.test(text)) {
     return false;
   }
   return ev.type === 'game' || ev.type === 'tournament' || ev.type === 'scrimmage';
 }
 
-/** Convert parsed TeamSnap iCal/CSV events into Court Studio schedule games. */
+/** Filter parsed TeamSnap events consistently for both schedule preview and game import. */
+export function filterBasketballScheduleEvents(
+  events: ParsedTeamSnapEvent[],
+  gamesOnly: boolean = true
+): ParsedTeamSnapEvent[] {
+  if (!gamesOnly) return events;
+  const explicitGames = events.filter(isBasketballGameEvent);
+  if (explicitGames.length > 0) return explicitGames;
+  return events
+    .filter((ev) => !BASKETBALL_NON_GAME_RE.test(`${ev.title || ''} ${ev.focusOrNotes || ''}`))
+    .map((ev) => (ev.type === 'practice' ? { ...ev, type: 'game' as const } : ev));
+}
+
+/** Convert parsed TeamSnap iCal/CSV/API events into Court Studio schedule games. */
 export function convertTeamSnapEventsToBasketballGames(
   events: ParsedTeamSnapEvent[],
   existingGames: BasketballGame[],
   mode: 'replace' | 'append',
-  options?: { gamesOnly?: boolean }
+  options?: { gamesOnly?: boolean; season?: string }
 ): BasketballGame[] {
   const gamesOnly = options?.gamesOnly ?? true;
-  const sourceEvents = gamesOnly ? events.filter(isBasketballGameEvent) : events;
+  const sourceEvents = filterBasketballScheduleEvents(events, gamesOnly);
 
   const existingKeys = new Set(
     (mode === 'append' ? existingGames : []).map(
@@ -1112,6 +1690,12 @@ export function convertTeamSnapEventsToBasketballGames(
       weekLabel = `Game ${gameCounter}`;
     }
 
+    const textScores = extractScoresFromText(`${ev.title || ''} ${ev.focusOrNotes || ''}`);
+    const ourScore =
+      typeof ev.raw?.ourScore === 'number' ? ev.raw.ourScore : textScores.ourScore;
+    const opponentScore =
+      typeof ev.raw?.opponentScore === 'number' ? ev.raw.opponentScore : textScores.opponentScore;
+
     additions.push({
       id: `bball-ts-${stamp}-${i + 1}`,
       weekLabel,
@@ -1121,6 +1705,9 @@ export function convertTeamSnapEventsToBasketballGames(
       location: ev.location || 'TBD Gym',
       homeAway,
       eventType,
+      ...(ourScore !== undefined && opponentScore !== undefined
+        ? { ourScore, opponentScore }
+        : {}),
       scoutingNotes: ev.focusOrNotes || undefined,
       possessions: [],
     });

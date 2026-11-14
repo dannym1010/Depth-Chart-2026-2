@@ -403,17 +403,11 @@ export function parseTeamSnapCSV(csvText: string): TeamSnapSyncResult {
       const arriveRaw = arriveIdx !== -1 ? row[arriveIdx] : '';
       const notes = notesIdx !== -1 ? row[notesIdx] : '';
 
-      let type: ScheduleEventType = 'practice';
-      if (rawType.includes('game') || rawTitle.toLowerCase().includes('game') || rawOpp) {
-        type = 'game';
-      } else if (rawType.includes('scrimmage') || rawTitle.toLowerCase().includes('scrimmage')) {
-        type = 'scrimmage';
-      } else if (rawType.includes('meeting') || rawTitle.toLowerCase().includes('meeting')) {
-        type = 'meeting';
-      }
+      const classified = classifyTeamSnapTitle(rawTitle, rawType, rawOpp);
+      const type: ScheduleEventType = classified.type;
 
-      let locationType: 'home' | 'away' | 'neutral' = 'home';
-      if (rawTitle.includes('@') || location.toLowerCase().includes('away')) {
+      let locationType: 'home' | 'away' | 'neutral' = classified.inferredAway ? 'away' : 'home';
+      if (location.toLowerCase().includes('away') || rawType.includes('away')) {
         locationType = 'away';
       }
 
@@ -423,7 +417,7 @@ export function parseTeamSnapCSV(csvText: string): TeamSnapSyncResult {
         if (!isNaN(num) && num > 0) arrivalMinutesBefore = num;
       }
 
-      const opponent = rawOpp || (type === 'game' ? rawTitle.replace(/^(game\s*vs\.?|vs\.?|@)\s*/i, '').trim() : undefined);
+      const opponent = rawOpp || classified.opponent;
       const week = inferWeekFromDate(date);
 
       events.push({
@@ -556,32 +550,91 @@ export function parseTeamSnapText(text: string): TeamSnapSyncResult {
   };
 }
 
+const NON_GAME_EVENT_RE =
+  /\b(practice|shootaround|open\s*gym|workout|training|clinic|tryout|try-out|meeting|film|banquet|photo\s*day|walkthrough|walk-through)\b/i;
+
+function extractOpponentFromTitle(rawTitle: string): { opponent?: string; inferredAway: boolean } {
+  const withoutScore = rawTitle
+    .replace(/\b[WL]\s*\d+\s*[-–]\s*\d+\b/gi, '')
+    .replace(/\(\s*\d+\s*[-–]\s*\d+\s*\)/g, '')
+    .replace(/^[,\-:\s|]+|[,\-:\s|]+$/g, '')
+    .trim();
+
+  const atSymbolIdx = withoutScore.indexOf('@');
+  if (atSymbolIdx !== -1) {
+    const afterAt = withoutScore.slice(atSymbolIdx + 1).trim();
+    return {
+      opponent: afterAt || withoutScore.replace(/@/g, '').trim() || undefined,
+      inferredAway: true,
+    };
+  }
+
+  const vsMatch = withoutScore.match(/\b(?:vs\.?|v\.?)\s+(.+)$/i);
+  if (vsMatch && vsMatch[1]?.trim()) {
+    return { opponent: vsMatch[1].trim(), inferredAway: false };
+  }
+
+  const atWordMatch = withoutScore.match(/(?:^|\s)at\s+(.+)$/i);
+  if (atWordMatch && atWordMatch[1]?.trim() && !NON_GAME_EVENT_RE.test(withoutScore)) {
+    return { opponent: atWordMatch[1].trim(), inferredAway: true };
+  }
+
+  const stripped = withoutScore.replace(/^game\s+/i, '').trim();
+  return { opponent: stripped || undefined, inferredAway: false };
+}
+
+function classifyTeamSnapTitle(
+  rawTitle: string,
+  rawType: string = '',
+  rawOpp: string = ''
+): { type: ScheduleEventType; opponent?: string; inferredAway: boolean } {
+  const lowerTitle = rawTitle.toLowerCase();
+  const lowerType = rawType.toLowerCase();
+  const extracted = extractOpponentFromTitle(rawTitle);
+
+  if (lowerType.includes('scrimmage') || /\bscrimmage\b/i.test(lowerTitle)) {
+    return {
+      type: 'scrimmage',
+      opponent: rawOpp || extracted.opponent,
+      inferredAway: extracted.inferredAway,
+    };
+  }
+  if (lowerType.includes('meeting') || /\b(meeting|film)\b/i.test(lowerTitle)) {
+    return { type: 'meeting', opponent: rawOpp || undefined, inferredAway: false };
+  }
+  if (lowerType.includes('practice') || NON_GAME_EVENT_RE.test(lowerTitle)) {
+    return { type: 'practice', opponent: rawOpp || undefined, inferredAway: false };
+  }
+  if (
+    lowerType.includes('game') ||
+    lowerType.includes('tournament') ||
+    Boolean(rawOpp) ||
+    rawTitle.includes('@') ||
+    /\b(game|vs\.?|v\.?|tournament|playoff|championship|jamboree)\b/i.test(lowerTitle) ||
+    /(?:^|\s)at\s+\S+/i.test(lowerTitle) ||
+    /\b[WL]\s*\d+\s*[-–]\s*\d+\b/i.test(rawTitle)
+  ) {
+    return {
+      type: 'game',
+      opponent: rawOpp || extracted.opponent,
+      inferredAway: extracted.inferredAway,
+    };
+  }
+  return { type: 'practice', opponent: rawOpp || undefined, inferredAway: false };
+}
+
 function finalizeTextEvent(entry: Partial<ParsedTeamSnapEvent>): ParsedTeamSnapEvent {
   const title = entry.title || 'Team Event';
-  const lower = title.toLowerCase();
+  const classified = classifyTeamSnapTitle(title, entry.type || '', entry.opponent || '');
 
-  let type: ScheduleEventType = entry.type || 'practice';
-  let opponent = entry.opponent;
-  let locationType: 'home' | 'away' | 'neutral' = entry.locationType || 'home';
-
-  if (!entry.type) {
-    if (lower.includes('vs') || lower.includes('@') || lower.includes('game')) {
-      type = 'game';
-      if (lower.includes('@')) locationType = 'away';
-    } else if (lower.includes('scrimmage')) {
-      type = 'scrimmage';
-    } else if (lower.includes('meeting') || lower.includes('film')) {
-      type = 'meeting';
-    }
-  }
-
-  if (!opponent && (type === 'game' || type === 'scrimmage')) {
-    if (title.includes(' vs ') || title.includes(' vs. ')) {
-      opponent = title.split(/ vs\.? /i)[1]?.trim();
-    } else if (title.includes(' @ ')) {
-      opponent = title.split(/ @ /i)[1]?.trim();
-    }
-  }
+  const type: ScheduleEventType = entry.type || classified.type;
+  const opponent = entry.opponent || (type === 'game' || type === 'scrimmage' ? classified.opponent : undefined);
+  const locationType: 'home' | 'away' | 'neutral' =
+    entry.locationType && entry.locationType !== 'home'
+      ? entry.locationType
+      : classified.inferredAway
+      ? 'away'
+      : 'home';
 
   const date = entry.date || '2026-09-05';
   const week = inferWeekFromDate(date);

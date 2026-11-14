@@ -1,7 +1,9 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
+  ArrowRight,
   Calendar,
   Check,
+  Database,
   Edit3,
   Film,
   Link2,
@@ -17,12 +19,16 @@ import {
   X,
 } from 'lucide-react';
 import {
-  parseTeamSnapCSV,
   parseTeamSnapICS,
-  parseTeamSnapText,
   type ParsedTeamSnapEvent,
 } from '../../utils/teamSnapSync';
-import { isBasketballGameEvent } from '../storage';
+import {
+  filterBasketballScheduleEvents,
+  inferSeasonYearForMonth,
+  normalizeSeasonLabel,
+  parseBasketballScheduleInput,
+  parseTeamSnapApiEventsJson,
+} from '../storage';
 import type { BasketballGame } from '../types';
 
 interface BasketballScheduleViewProps {
@@ -48,7 +54,7 @@ interface BasketballScheduleViewProps {
 }
 
 type EventFilter = 'ALL' | 'Game' | 'Practice' | 'Tournament' | 'Scrimmage';
-type SyncTab = 'url' | 'file' | 'paste';
+type SyncTab = 'url' | 'paste' | 'file' | 'api';
 
 function decodeAllOriginsPayload(contents: string): string {
   if (!contents) return '';
@@ -76,7 +82,10 @@ function decodeAllOriginsPayload(contents: string): string {
 }
 
 async function fetchIcalFeedText(rawUrl: string): Promise<string> {
-  const cleanUrl = rawUrl.trim().replace(/^["']|["']$/g, '').replace(/^webcal:\/\//i, 'https://');
+  const cleanUrl = rawUrl
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/^(?:webcal|http):\/\//i, 'https://');
   const cacheBust = `${cleanUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`;
 
   try {
@@ -92,7 +101,17 @@ async function fetchIcalFeedText(rawUrl: string): Promise<string> {
       }
     }
   } catch {
-    /* fall through to proxy */
+    /* fall through to direct/proxy */
+  }
+
+  try {
+    const directRes = await fetch(cleanUrl + cacheBust);
+    if (directRes.ok) {
+      const text = await directRes.text();
+      if (text.includes('BEGIN:VCALENDAR')) return text;
+    }
+  } catch {
+    /* fall through to proxies */
   }
 
   try {
@@ -104,6 +123,21 @@ async function fetchIcalFeedText(rawUrl: string): Promise<string> {
     }
   } catch {
     /* fall through */
+  }
+
+  for (const proxyUrl of [
+    `https://corsproxy.io/?url=${encodeURIComponent(cleanUrl + cacheBust)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(cleanUrl + cacheBust)}`,
+  ]) {
+    try {
+      const res = await fetch(proxyUrl);
+      if (res.ok) {
+        const text = await res.text();
+        if (text.includes('BEGIN:VCALENDAR')) return text;
+      }
+    } catch {
+      /* continue */
+    }
   }
 
   return '';
@@ -135,15 +169,24 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
   const [syncTab, setSyncTab] = useState<SyncTab>('url');
   const [feedUrl, setFeedUrl] = useState(calendarUrl);
   const [pasteSchedule, setPasteSchedule] = useState('');
+  const [apiTeamId, setApiTeamId] = useState('');
+  const [apiToken, setApiToken] = useState(() => {
+    try {
+      return localStorage.getItem('bball_ts_api_token') || '';
+    } catch {
+      return '';
+    }
+  });
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncError, setSyncError] = useState('');
+  const [icalEmptyNotice, setIcalEmptyNotice] = useState(false);
   const [parsedEvents, setParsedEvents] = useState<ParsedTeamSnapEvent[]>([]);
   const [syncMode, setSyncMode] = useState<'replace' | 'append'>('replace');
   const [gamesOnly, setGamesOnly] = useState(true);
   const scheduleFileRef = useRef<HTMLInputElement>(null);
 
   const filteredParsedEvents = useMemo(
-    () => (gamesOnly ? parsedEvents.filter(isBasketballGameEvent) : parsedEvents),
+    () => filterBasketballScheduleEvents(parsedEvents, gamesOnly),
     [parsedEvents, gamesOnly]
   );
   const skippedNonGamesCount = parsedEvents.length - filteredParsedEvents.length;
@@ -261,6 +304,7 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
   const openTeamSnapSync = () => {
     setFeedUrl(calendarUrl || '');
     setSyncError('');
+    setIcalEmptyNotice(false);
     setParsedEvents([]);
     setGamesOnly(true);
     setSyncMode(games.length === 0 ? 'replace' : 'append');
@@ -270,20 +314,26 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
   const handleFetchIcalUrl = async () => {
     if (!feedUrl.trim()) {
       setSyncError('Paste your TeamSnap iCal / WebCal schedule URL first.');
+      setIcalEmptyNotice(false);
       return;
     }
     setSyncBusy(true);
     setSyncError('');
+    setIcalEmptyNotice(false);
     try {
       const ics = await fetchIcalFeedText(feedUrl);
       if (!ics) {
-        setSyncError('Could not fetch that iCal link directly. Try downloading the .ics file from TeamSnap or pasting events.');
+        setSyncError('Could not fetch that iCal link directly. Try Paste Schedule Text, Upload .ics/.csv, or TeamSnap API.');
         setSyncBusy(false);
         return;
       }
       const res = parseTeamSnapICS(ics);
       if (!res.success || res.events.length === 0) {
-        setSyncError(res.error || 'No calendar events found in that TeamSnap feed.');
+        setParsedEvents([]);
+        setIcalEmptyNotice(true);
+        setSyncError(
+          `TeamSnap's live iCal link returned 0 events. TeamSnap automatically removes games older than ~6 months from live .ics links (including past seasons like ${normalizeSeasonLabel(season)}).`
+        );
       } else {
         setParsedEvents(res.events);
       }
@@ -298,41 +348,84 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     setSyncError('');
+    setIcalEmptyNotice(false);
     const reader = new FileReader();
     reader.onload = (evt) => {
       const content = String(evt.target?.result || '');
-      const res = content.includes('BEGIN:VCALENDAR')
-        ? parseTeamSnapICS(content)
-        : file.name.toLowerCase().endsWith('.csv')
-        ? parseTeamSnapCSV(content)
-        : parseTeamSnapText(content);
-      if (!res.success || res.events.length === 0) {
-        setSyncError(res.error || 'No events found in this file.');
+      const events = parseBasketballScheduleInput(content, season);
+      if (events.length === 0) {
+        setSyncError('No events found in this file. Try opening TeamSnap -> Schedule -> Past and copying the games.');
         setParsedEvents([]);
       } else {
-        setParsedEvents(res.events);
+        setParsedEvents(events);
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleParseScheduleText = () => {
     setSyncError('');
+    setIcalEmptyNotice(false);
     if (!pasteSchedule.trim()) {
       setSyncError('Paste schedule text or CSV/ICS content first.');
       return;
     }
-    const content = pasteSchedule.trim();
-    const res = content.includes('BEGIN:VCALENDAR')
-      ? parseTeamSnapICS(content)
-      : content.includes(',') && content.includes('\n')
-      ? parseTeamSnapCSV(content)
-      : parseTeamSnapText(content);
-    if (!res.success || res.events.length === 0) {
-      setSyncError(res.error || 'No schedule events could be parsed.');
+    const events = parseBasketballScheduleInput(pasteSchedule, season);
+    if (events.length === 0) {
+      setSyncError('No schedule events could be parsed. Make sure each game includes a date (e.g. "Dec 6" or "12/6/2025") and opponent.');
       setParsedEvents([]);
     } else {
-      setParsedEvents(res.events);
+      setParsedEvents(events);
+    }
+  };
+
+  const handleFetchTeamSnapApiSchedule = async () => {
+    if (!apiTeamId.trim() || !apiToken.trim()) {
+      setSyncError('Enter both your TeamSnap Team ID and Personal Access Token.');
+      setIcalEmptyNotice(false);
+      return;
+    }
+    setSyncBusy(true);
+    setSyncError('');
+    setIcalEmptyNotice(false);
+    try {
+      try {
+        localStorage.setItem('bball_ts_api_token', apiToken.trim());
+      } catch {
+        /* ignore storage quota errors */
+      }
+      const res = await fetch(
+        `https://api.teamsnap.com/v3/events/search?team_id=${encodeURIComponent(apiTeamId.trim())}`,
+        {
+          headers: {
+            Authorization: `Bearer ${apiToken.trim()}`,
+            Accept: 'application/vnd.collection+json, application/json',
+          },
+        }
+      );
+      if (!res.ok) {
+        setSyncError(
+          `TeamSnap API returned HTTP ${res.status}. Double-check your Team ID / Token, or copy your Past games into the Paste Schedule Text tab.`
+        );
+        return;
+      }
+      const json = await res.json();
+      const events = parseTeamSnapApiEventsJson(json, season);
+      if (events.length === 0) {
+        setSyncError('No events found on that TeamSnap team.');
+        setParsedEvents([]);
+      } else {
+        setParsedEvents(events);
+      }
+    } catch (err: any) {
+      setSyncError(
+        err?.message?.includes('Failed to fetch')
+          ? 'Browser blocked direct TeamSnap API request (CORS). In TeamSnap -> Schedule -> Past, copy the game table and paste it in the Paste Schedule Text tab.'
+          : err?.message || 'TeamSnap API request failed.'
+      );
+    } finally {
+      setSyncBusy(false);
     }
   };
 
@@ -810,12 +903,13 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
               </div>
             </div>
 
-            <div className="flex gap-1.5 border-b border-zinc-200 dark:border-zinc-800 pb-2">
+            <div className="flex flex-wrap gap-1.5 border-b border-zinc-200 dark:border-zinc-800 pb-2">
               {(
                 [
                   { id: 'url', label: 'iCal / WebCal URL', icon: Link2 },
-                  { id: 'file', label: 'Upload .ics / .csv', icon: Upload },
                   { id: 'paste', label: 'Paste Schedule Text', icon: Calendar },
+                  { id: 'file', label: 'Upload .ics / .csv', icon: Upload },
+                  { id: 'api', label: 'TeamSnap API', icon: Database },
                 ] as const
               ).map((t) => {
                 const Icon = t.icon;
@@ -826,6 +920,7 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
                     onClick={() => {
                       setSyncTab(t.id);
                       setSyncError('');
+                      setIcalEmptyNotice(false);
                     }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer ${
                       syncTab === t.id
@@ -841,22 +936,53 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
             </div>
 
             {syncTab === 'url' && (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={feedUrl}
-                  onChange={(e) => setFeedUrl(e.target.value)}
-                  placeholder="https://ical-cdn.teamsnap.com/team_schedule/...ics or webcal://..."
-                  className="flex-1 h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs"
-                />
-                <button
-                  type="button"
-                  disabled={syncBusy}
-                  onClick={() => void handleFetchIcalUrl()}
-                  className="h-9 px-4 rounded-lg bg-zinc-900 dark:bg-amber-500 text-white dark:text-zinc-950 text-xs font-semibold disabled:opacity-50 cursor-pointer"
-                >
-                  {syncBusy ? 'Loading...' : 'Load Feed'}
-                </button>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={feedUrl}
+                    onChange={(e) => setFeedUrl(e.target.value)}
+                    placeholder="https://ical-cdn.teamsnap.com/team_schedule/...ics or webcal://..."
+                    className="flex-1 h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs"
+                  />
+                  <button
+                    type="button"
+                    disabled={syncBusy}
+                    onClick={() => void handleFetchIcalUrl()}
+                    className="h-9 px-4 rounded-lg bg-zinc-900 dark:bg-amber-500 text-white dark:text-zinc-950 text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                  >
+                    {syncBusy ? 'Loading...' : 'Load Feed'}
+                  </button>
+                </div>
+                {normalizeSeasonLabel(season) === '2025-26' && (
+                  <p className="text-[11px] text-zinc-500">
+                    Syncing older <b>2025-26</b> games? TeamSnap&apos;s live iCal links expire events older than ~6 months — if this feed is empty, use{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSyncTab('paste');
+                        setSyncError('');
+                        setIcalEmptyNotice(false);
+                      }}
+                      className="text-amber-600 dark:text-amber-400 font-semibold underline cursor-pointer"
+                    >
+                      Paste Schedule Text
+                    </button>{' '}
+                    (from TeamSnap → Schedule → Past) or{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSyncTab('api');
+                        setSyncError('');
+                        setIcalEmptyNotice(false);
+                      }}
+                      className="text-amber-600 dark:text-amber-400 font-semibold underline cursor-pointer"
+                    >
+                      TeamSnap API
+                    </button>
+                    .
+                  </p>
+                )}
               </div>
             )}
 
@@ -882,11 +1008,14 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
 
             {syncTab === 'paste' && (
               <div className="space-y-2">
+                <p className="text-[11px] text-zinc-500">
+                  In TeamSnap, open your <b>{normalizeSeasonLabel(season)}</b> team → <b>Schedule → Past</b>, select and copy the games table, and paste it below. Dates without a year (e.g. <code>Dec 6</code>, <code>Jan 17</code>) automatically map to <b>{inferSeasonYearForMonth(season, 11)}</b> (Aug–Dec) and <b>{inferSeasonYearForMonth(season, 1)}</b> (Jan–Jul).
+                </p>
                 <textarea
-                  rows={4}
+                  rows={5}
                   value={pasteSchedule}
                   onChange={(e) => setPasteSchedule(e.target.value)}
-                  placeholder="Paste TeamSnap iCal contents, CSV export, or schedule lines..."
+                  placeholder={'Paste TeamSnap Past games, CSV, or iCal text, e.g.:\nSat, Dec 6\t10:00 AM\tvs Yorktown\tMahopac MS\tW 48-41\nSun, Jan 18\t1:30 PM\t@ Somers\tSomers HS\tL 35-42'}
                   className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs font-mono"
                 />
                 <button
@@ -899,9 +1028,79 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
               </div>
             )}
 
+            {syncTab === 'api' && (
+              <div className="space-y-2.5">
+                <p className="text-[11px] text-zinc-500">
+                  Pulls full event history (including past seasons and final scores) directly from TeamSnap API v3. Find your numeric <b>Team ID</b> in your TeamSnap team URL (<code>team.teamsnap.com/<b>12345678</b>/...</code>).
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-500 mb-1">
+                      TeamSnap Team ID
+                    </label>
+                    <input
+                      type="text"
+                      value={apiTeamId}
+                      onChange={(e) => setApiTeamId(e.target.value)}
+                      placeholder="e.g. 12345678"
+                      className="w-full h-9 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-zinc-500 mb-1">
+                      Personal Access Token
+                    </label>
+                    <input
+                      type="password"
+                      value={apiToken}
+                      onChange={(e) => setApiToken(e.target.value)}
+                      placeholder="TeamSnap OAuth token"
+                      className="w-full h-9 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={syncBusy}
+                  onClick={() => void handleFetchTeamSnapApiSchedule()}
+                  className="h-9 px-4 rounded-lg bg-zinc-900 dark:bg-amber-500 text-white dark:text-zinc-950 text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                >
+                  {syncBusy ? 'Fetching History...' : 'Load TeamSnap Events'}
+                </button>
+              </div>
+            )}
+
             {syncError && (
-              <div className="text-xs text-rose-500 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
-                {syncError}
+              <div className="text-xs text-rose-500 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2.5 space-y-2">
+                <div>{syncError}</div>
+                {icalEmptyNotice && (
+                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSyncTab('paste');
+                        setSyncError('');
+                        setIcalEmptyNotice(false);
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500 text-zinc-950 font-bold text-[11px] cursor-pointer"
+                    >
+                      <span>Switch to Paste Past Schedule</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSyncTab('api');
+                        setSyncError('');
+                        setIcalEmptyNotice(false);
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold text-[11px] cursor-pointer"
+                    >
+                      <span>Use TeamSnap API</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -945,6 +1144,11 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
                         <div className="min-w-0">
                           <div className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">
                             {ev.opponent || ev.title}
+                            {typeof ev.raw?.ourScore === 'number' && typeof ev.raw?.opponentScore === 'number' && (
+                              <span className="ml-2 font-mono text-[11px] text-amber-600 dark:text-amber-400">
+                                ({ev.raw.ourScore}-{ev.raw.opponentScore})
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-zinc-500 truncate">
                             {ev.date} · {ev.startTime || 'TBD'} · {ev.location || 'TBD Gym'}

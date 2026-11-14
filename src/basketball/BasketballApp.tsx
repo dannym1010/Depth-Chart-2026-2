@@ -531,7 +531,7 @@ export const BasketballApp: React.FC = () => {
         events,
         current.games,
         mode,
-        { gamesOnly }
+        { gamesOnly, season: activeTeam.season }
       );
       const nextTeams = calendarUrl
         ? prev.teams.map((t) => (t.id === activeTeam.id ? { ...t, calendarUrl } : t))
