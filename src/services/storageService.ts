@@ -609,6 +609,8 @@ export function cloudModulesForScope(scope: string = ''): Array<
   }
   const s = String(scope || '');
   if (s === 'force') return undefined;
+  // Just these documents (what's sent again after only some of a save failed).
+  if (s.startsWith('modules:')) return s.slice(8).split(',').filter(Boolean) as any;
   if (isBoardPatchScope(s)) return ['week'];
   if (s === 'focusout' || s === 'beforeunload' || s === 'immediate' || s === 'all') return [];
   // A copied week replaces the whole week: depth chart, formations, wristband and call sheet.
@@ -1338,23 +1340,31 @@ export async function saveSharedBoardCloud(payload: {
     | 'formations'
   >;
 }): Promise<boolean> {
+  boardSaveFailed = [];
   if (readOnlySession) return false;
   try {
     if (isFirestoreQuotaPaused()) return false;
     const { db } = getFirebaseServices();
     if (!db) return false;
+    // Each document's write, by the kind it is (when one fails, only that kind is sent again: sending them all again
+    // rewrote every document that had gone through, over and over, and used up the cloud's daily writes).
     const writes: Promise<any>[] = [];
+    const kinds: string[] = [];
+    const add = (kind: string, p: Promise<any>) => {
+      kinds.push(kind);
+      writes.push(p);
+    };
     const col = db.collection('teamData');
     const want = (name: string) => !payload.modules || payload.modules.includes(name as any);
     if (want('schedule') && payload.scheduleEvents) {
-      writes.push(
+      add('schedule', 
         col.doc('ops_schedule').set(
           opsMeta({ events: payload.scheduleEvents, deletedEventIds: payload.deletedScheduleEventIds || [] })
         )
       );
     }
     if (want('practice') && payload.practiceData) {
-      writes.push(
+      add('practice', 
         col.doc('ops_practice').set(
           opsMeta({
             plans: payload.practiceData,
@@ -1366,7 +1376,7 @@ export async function saveSharedBoardCloud(payload: {
     if (want('week') && payload.weekSlice && payload.teamId && payload.week) {
       const ref = col.doc(opsWeekDocId(payload.teamId, payload.week));
       const slice = payload.weekSlice;
-      writes.push(
+      add('week', 
         db.runTransaction(async (tx: any) => {
           // Another coach's newer edit of a spot stays: only spots this device changed last (or that nobody
           // timed) go up. The edit times go up merged.
@@ -1398,7 +1408,7 @@ export async function saveSharedBoardCloud(payload: {
     if (want('roster') && payload.roster) {
       const ref = col.doc('ops_roster');
       const outgoing = payload.roster;
-      writes.push(
+      add('roster', 
         db.runTransaction(async (tx: any) => {
           const snap = await tx.get(ref);
           const cur = snap?.exists ? snap.data() || {} : {};
@@ -1410,11 +1420,11 @@ export async function saveSharedBoardCloud(payload: {
       );
     }
     if (want('season') && (payload.teams || payload.seasonConfig)) {
-      writes.push(col.doc('ops_season').set(opsMeta({ teams: payload.teams, seasonConfig: payload.seasonConfig })));
+      add('season', col.doc('ops_season').set(opsMeta({ teams: payload.teams, seasonConfig: payload.seasonConfig })));
     }
     if (want('staff') && payload.staffList) {
       // Coach by coach with what's already in the cloud: an older list on this device can't drop anyone.
-      writes.push(
+      add('staff', 
         mergeStaffIntoCloud(payload.staffList, payload.deletedStaff).then((res) => {
           if (res) payload.onStaffMerged?.(res.staff, res.deleted);
         })
@@ -1425,7 +1435,7 @@ export async function saveSharedBoardCloud(payload: {
       // attendance at the same time both keep their records.
       const outgoing = payload.attendanceLogs;
       const ref = col.doc('ops_attendance');
-      writes.push(
+      add('attendance', 
         db.runTransaction(async (tx: any) => {
           const snap = await tx.get(ref);
           const cur = snap?.exists ? snap.data() || {} : {};
@@ -1437,7 +1447,7 @@ export async function saveSharedBoardCloud(payload: {
       );
     }
     if (want('drills') && (payload.cascadingDrills || payload.practiceTemplates || payload.practiceWeekdayTemplates || payload.liveDrillSlotLayouts)) {
-      writes.push(
+      add('drills', 
         col.doc('ops_drills').set(
           opsMeta({
             cascadingDrills: payload.cascadingDrills,
@@ -1449,13 +1459,13 @@ export async function saveSharedBoardCloud(payload: {
       );
     }
     if (want('call_sheet') && payload.callSheetData) {
-      writes.push(col.doc('ops_call_sheet').set(opsMeta({ callSheetData: payload.callSheetData })));
+      add('call_sheet', col.doc('ops_call_sheet').set(opsMeta({ callSheetData: payload.callSheetData })));
     }
     if (want('wristband') && payload.wristbandData) {
-      writes.push(col.doc('ops_wristband').set(opsMeta({ wristbandData: payload.wristbandData })));
+      add('wristband', col.doc('ops_wristband').set(opsMeta({ wristbandData: payload.wristbandData })));
     }
     if (want('plays') && (payload.masterPlayLibrary || payload.playDatabase)) {
-      writes.push(
+      add('plays', 
         writeOpsPlaysDocs(col, {
           masterPlayLibrary: payload.masterPlayLibrary,
           playDatabase: payload.playDatabase,
@@ -1465,10 +1475,10 @@ export async function saveSharedBoardCloud(payload: {
       );
     }
     if (want('guides') && (payload.guideTree || payload.guideOrder)) {
-      writes.push(col.doc('ops_guides').set(opsMeta({ guideTree: payload.guideTree, guideOrder: payload.guideOrder })));
+      add('guides', col.doc('ops_guides').set(opsMeta({ guideTree: payload.guideTree, guideOrder: payload.guideOrder })));
     }
     if (want('pff') && (payload.pffGradeCriteria || payload.pffPlayerGroups)) {
-      writes.push(
+      add('pff', 
         col.doc('ops_pff').set(
           opsMeta({
             pffGradeCriteria: payload.pffGradeCriteria,
@@ -1480,7 +1490,7 @@ export async function saveSharedBoardCloud(payload: {
     if (want('coaches') && (payload.savedCoaches || payload.teamSavedCoaches)) {
       // Merge each team's names with what other coaches already saved, in one step.
       const ref = col.doc('ops_coaches');
-      writes.push(
+      add('coaches', 
         db.runTransaction(async (tx: any) => {
           const snap = await tx.get(ref);
           const cur = snap?.exists ? snap.data() || {} : {};
@@ -1501,7 +1511,7 @@ export async function saveSharedBoardCloud(payload: {
     }
     if (want('formations') && (payload.defaultFormations || payload.deletedFormationIds)) {
       const ref = col.doc('ops_formations');
-      writes.push(
+      add('formations', 
         db.runTransaction(async (tx: any) => {
           const snap = await tx.get(ref);
           const cur = snap?.exists ? snap.data() || {} : {};
@@ -1528,15 +1538,46 @@ export async function saveSharedBoardCloud(payload: {
     }
     // Nothing of these kinds to send: nothing is waiting.
     if (!writes.length) return true;
-    await Promise.all(writes);
-    lastCloudError = '';
-    return true;
+    const results = await Promise.allSettled(writes);
+    const failed = results.flatMap((r, i) => (r.status === 'rejected' ? [{ kind: kinds[i], err: r.reason }] : []));
+    if (!failed.length) {
+      lastCloudError = '';
+      return true;
+    }
+    boardSaveFailed = [...new Set(failed.map((f) => f.kind))];
+    // The daily limit (if that's it) pauses the cloud; the reason says what didn't go up.
+    noteFirestoreError(failed[0].err);
+    if (!isFirestoreQuotaPaused()) lastCloudError = `${boardSaveFailed.map((k) => KIND_NAME[k] || k).join(', ')}: ${lastCloudError}`;
+    console.warn('saveSharedBoardCloud error:', failed.map((f) => `${f.kind}: ${f.err?.message || f.err}`).join(' | '));
+    return false;
   } catch (err) {
     noteFirestoreError(err);
     console.warn('saveSharedBoardCloud error:', err);
     return false;
   }
 }
+
+/** The kinds of document the last board save couldn't write (only these are sent again). */
+let boardSaveFailed: string[] = [];
+export const boardSaveFailedKinds = () => boardSaveFailed.slice();
+/** Each kind in plain words (the banner says which part didn't save). */
+const KIND_NAME: Record<string, string> = {
+  week: "this week's depth chart",
+  schedule: 'the schedule',
+  practice: 'practice plans',
+  roster: 'the roster',
+  season: 'teams and season',
+  staff: 'staff',
+  attendance: 'attendance',
+  drills: 'drills',
+  call_sheet: 'the call sheet',
+  wristband: 'wristbands',
+  plays: 'the play bank',
+  guides: 'guides',
+  pff: 'PFF settings',
+  coaches: 'coach names',
+  formations: 'formations',
+};
 
 /**
  * PFF grades and the film session for one week (the week being graded, usually last week).

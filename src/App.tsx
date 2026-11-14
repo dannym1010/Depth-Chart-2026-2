@@ -91,6 +91,7 @@ import {
   isFirestoreQuotaPaused,
   ensureFirestoreOnline,
   firestorePauseEndsAt,
+  boardSaveFailedKinds,
   noteFirestoreError,
   lastCloudSaveError,
   LOCAL_SAVE_FAILED,
@@ -196,6 +197,7 @@ import { FilmRoomView } from './filmroom/FilmRoomView';
 import { HighlightsSection } from './highlights/HighlightsSection';
 import { MediaSection } from './media/MediaSection';
 import { HighlightsDock } from './highlights/HighlightsDock';
+import { retryScope, tidyScope, tidyWaiting } from './utils/saveScope';
 import { FilmWindowHost } from './filmroom/FilmWindow';
 import { openScoutVersions, ScoutSafetyNet } from './components/ScoutSafetyNet';
 import { closeFilmWindow, filmWindowAutoOpen, openFilmWindow, setFilmWindowUpcoming, type FilmWindowRequest } from './filmroom/filmWindowStore';
@@ -2361,6 +2363,8 @@ export default function App() {
     const payloadJson = safeJSONStringify(payload);
     const scopeParts = String(scope).split('+');
     const isExplicitUserAction = scopeParts.some((scope) =>
+      // What didn't go up last time, going again (nothing changed since, but it isn't in the cloud).
+      scope.startsWith('modules:') ||
       scope.startsWith('position_') ||
       scope.startsWith('player_') ||
       scope.startsWith('formation_') ||
@@ -2608,7 +2612,12 @@ export default function App() {
       modules,
     });
 
-    if (sharedOk || firestoreOk) {
+    // Only the kinds of document that didn't go up wait and go again (sending the rest again rewrote them for
+    // nothing, every few seconds while a coach worked, and used up the cloud's daily writes).
+    const failedKinds = skipShared || sharedOk ? [] : boardSaveFailedKinds();
+    if (failedKinds.length) {
+      noteCloudResult(false, scope, extraMeta, retryScope(scope, failedKinds));
+    } else if (sharedOk || firestoreOk) {
       noteCloudResult(true, scope, extraMeta);
     } else if (!skipShared) {
       // Meant for the cloud and it didn't get there: it stays waiting and goes again.
@@ -2630,8 +2639,20 @@ export default function App() {
   const UNSYNCED_KEY = 'footballUnsyncedSaves';
   const readUnsynced = (): [string, Record<string, any> | undefined][] => {
     try {
-      const list = JSON.parse(localStorage.getItem(UNSYNCED_KEY) || '[]');
-      return Array.isArray(list) ? list.filter((x) => Array.isArray(x) && typeof x[0] === 'string') : [];
+      const raw = localStorage.getItem(UNSYNCED_KEY) || '[]';
+      const list = JSON.parse(raw);
+      const ok: [string, Record<string, any> | undefined][] = Array.isArray(list) ? list.filter((x) => Array.isArray(x) && typeof x[0] === 'string') : [];
+      // Names that grew over many failed retries (tens of thousands of characters) kept short again.
+      const tidy = tidyWaiting(ok);
+      if (raw.length > 20_000 || tidy.length !== ok.length) {
+        try {
+          if (tidy.length) localStorage.setItem(UNSYNCED_KEY, JSON.stringify(tidy));
+          else localStorage.removeItem(UNSYNCED_KEY);
+        } catch {
+          /* storage blocked */
+        }
+      }
+      return tidy;
     } catch {
       return [];
     }
@@ -2649,23 +2670,39 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', warn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const noteCloudResult = (ok: boolean, scope: string, extraMeta?: Record<string, any>) => {
+  /**
+   * After a cloud save. `retry`: when only part of it failed, what goes again (else the whole save). The waiting list
+   * keeps one short entry per save; tries in a row only start over when nothing is waiting any more (a save of
+   * something else going through used to start them over, so a save that kept failing went again every 3 seconds
+   * all day); after a few in a row it stops trying by itself until the next change or "Try saving again".
+   */
+  const noteCloudResult = (ok: boolean, rawScope: string, extraMeta?: Record<string, any>, retry?: string) => {
+    const scope = tidyScope(rawScope);
     const r = cloudRetryRef.current;
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // The waiting list without what this save carried (it went up, or what of it didn't waits under `retry`).
+    const parts = new Set(scope.split('+'));
+    const withoutThis = () => readUnsynced().filter(([s]) => s !== scope && !parts.has(s));
     if (ok) {
-      // The red banner was for the cloud: it's caught up (a full device storage keeps its own banner).
-      setSaveAlarm((a) => (a?.kind === 'cloud' ? null : a));
-      r.tries = 0;
-      if (r.timer) clearTimeout(r.timer);
-      r.timer = null;
-      // This save carried the device's current copy of its kind: that kind is no longer waiting.
+      let left: [string, Record<string, any> | undefined][] = [];
       try {
-        const left = readUnsynced().filter(([s]) => s !== scope && !scope.split('+').includes(s));
+        // A full save ("force") carried everything: nothing is waiting after it.
+        left = scope === 'force' ? [] : withoutThis();
         if (left.length) localStorage.setItem(UNSYNCED_KEY, JSON.stringify(left));
         else localStorage.removeItem(UNSYNCED_KEY);
       } catch {
         /* storage full or blocked: the retry in memory still runs */
       }
+      // Something that failed before is still waiting: its retry and the banner stay.
+      if (left.length) {
+        setSyncStatus({ text: `⚠️ Saved (${timeStr}); ${left.length} earlier change${left.length === 1 ? '' : 's'} still not in the cloud`, color: '#f59e0b' });
+        return;
+      }
+      // The red banner was for the cloud: it's caught up (a full device storage keeps its own banner).
+      setSaveAlarm((a) => (a?.kind === 'cloud' ? null : a));
+      r.tries = 0;
+      if (r.timer) clearTimeout(r.timer);
+      r.timer = null;
       setSyncStatus({ text: `✅ Saved & Synced (${timeStr})`, color: '#22c55e' });
       return;
     }
@@ -2673,22 +2710,30 @@ export default function App() {
       setSyncStatus({ text: '⚠️ Saved on this device only', color: '#ef4444' });
       return;
     }
-    queueSaveScope(scope, extraMeta);
+    const again = tidyScope(retry || scope);
+    queueSaveScope(again, extraMeta);
     try {
-      const list = readUnsynced().filter(([s]) => s !== scope);
-      localStorage.setItem(UNSYNCED_KEY, JSON.stringify([...list, [scope, extraMeta]].slice(-40)));
+      const list = retry ? withoutThis() : readUnsynced();
+      localStorage.setItem(UNSYNCED_KEY, JSON.stringify(tidyWaiting([...list.filter(([s]) => s !== again), [again, extraMeta]])));
     } catch {
       /* storage full or blocked: the retry in memory still runs */
     }
     r.tries += 1;
-    const wait = Math.min(60_000, 3_000 * 2 ** Math.min(r.tries - 1, 5));
     const reason = lastCloudSaveError() || 'the cloud did not answer';
-    setSyncStatus({ text: `⚠️ Not in the cloud yet (${reason}). Trying again…`, color: '#ef4444' });
+    const stopped = r.tries > 6;
+    setSyncStatus({
+      text: stopped ? `⚠️ Not in the cloud (${reason}). It goes with your next change, or Try saving again.` : `⚠️ Not in the cloud yet (${reason}). Trying again…`,
+      color: '#ef4444',
+    });
     // A second failure in a row (or any failure saving plays): the red banner across the top, not just the pill.
-    if (r.tries >= 2 || scope.split('+').includes('plays')) {
+    const plays = again.split('+').some((p) => p === 'plays' || (p.startsWith('modules:') && p.slice(8).split(',').includes('plays')));
+    if (r.tries >= 2 || plays) {
       setSaveAlarm({ kind: 'cloud', text: `Your changes are NOT saved to the cloud (${reason}). Other computers won't see them, and they're only on this computer.` });
     }
     if (r.timer) clearTimeout(r.timer);
+    r.timer = null;
+    if (stopped) return;
+    const wait = Math.min(60_000, 3_000 * 2 ** Math.min(r.tries - 1, 5));
     r.timer = setTimeout(() => {
       r.timer = null;
       scheduleSaves(0);
@@ -2714,10 +2759,11 @@ export default function App() {
     // Depth-chart spot and formation edits go as small patches, one per kind.
     for (const [s, meta] of entries.filter(([s]) => isBoardPatchScope(s))) await saveStateToStorage(s, meta);
     const rest = entries.filter(([s]) => !isBoardPatchScope(s));
-    if (rest.length === 1) await saveStateToStorage(rest[0][0], rest[0][1]);
+    if (rest.length === 1) await saveStateToStorage(tidyScope(rest[0][0]), rest[0][1]);
     else if (rest.length > 1) {
       await saveStateToStorage(
-        rest.map(([s]) => s).join('+'),
+        // Each part once (a name made of every change since used to grow without end).
+        tidyScope(rest.map(([s]) => s).join('+')),
         Object.assign({}, ...rest.map(([, m]) => m || {}))
       );
     }
@@ -2822,6 +2868,8 @@ export default function App() {
     setSyncStatus({ text: '☁️ Saving to Cloud & Server...', color: '#f59e0b' });
     // After the daily limit's pause: the cloud connection back on first (it was turned off for the pause).
     await ensureFirestoreOnline();
+    // Asked for: automatic retries may start again if this one fails.
+    cloudRetryRef.current.tries = 0;
     await saveStateToStorage('force');
   };
 
