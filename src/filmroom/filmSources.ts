@@ -180,17 +180,18 @@ export async function testFilmServer(s: FilmServer): Promise<string> {
   return String(r?.name || 'Film folder');
 }
 /**
- * Where the film folder is on the computer the film server runs on ("E:\Mahopac Film"), when it says (an export for
- * DaVinci Resolve on that computer needs the real path; a browser can't see one). '' when it doesn't.
+ * The film server's film folder: its name ("Mahopac Film") and where it is on the computer the film server runs on
+ * ("E:\Mahopac Film"; '' from an older film server). An export for DaVinci Resolve on that computer needs the real path,
+ * which a browser can't see. Null when there's no film server or it doesn't answer.
  */
-export async function filmServerRoot(): Promise<string> {
+export async function filmServerFolder(): Promise<{ name: string; root: string } | null> {
   const s = filmServer();
-  if (!s) return '';
+  if (!s) return null;
   try {
     const r = await serverGet(s, 'ping');
-    return typeof r?.root === 'string' ? r.root : '';
+    return { name: typeof r?.name === 'string' ? r.name : '', root: typeof r?.root === 'string' ? r.root : '' };
   } catch {
-    return '';
+    return null;
   }
 }
 /** A folder on the film server the film-folder finder can look inside ('' = the film folder itself). */

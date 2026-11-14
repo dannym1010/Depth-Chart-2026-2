@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { blobReader, readSourceTimecode, timecodeSeconds } from './sourceTimecode.ts';
+import { blobReader, readSourceInfo, readSourceTimecode, timecodeSeconds } from './sourceTimecode.ts';
 
 // A tiny QuickTime / MP4 file: ftyp, the media data (the timecode's one sample: a frame number), and the movie header
 // with a timecode track pointing at it. `moovFirst` puts the header before the media data.
@@ -75,6 +75,20 @@ describe("a camera file's own timecode", () => {
     assert.ok(tc);
     assert.equal(tc!.dropFrame, true);
     assert.ok(Math.abs(tc!.seconds - (30000 * 1001) / 30000) < 1e-9);
+  });
+
+  it("the file's length from its movie header (version 0 and 1), next to its clock", async () => {
+    const mvhd0 = box('mvhd', bytes([0, 4], [0, 4], [0, 4], [600, 4], [6906, 4]));
+    const at0 = await readSourceInfo(blobReader(new Blob([box('ftyp', text('isom')), box('moov', mvhd0)])));
+    assert.equal(at0.timecode, null);
+    assert.ok(Math.abs((at0.durationSec || 0) - 11.51) < 1e-9, String(at0.durationSec));
+    // Version 1: 8-byte created, modified and length.
+    const mvhd1 = box('mvhd', bytes([0x01000000, 4], [0, 8], [0, 8], [60000, 4], [0, 4], [1441440, 4]));
+    assert.ok(Math.abs(((await readSourceInfo(blobReader(new Blob([box('moov', mvhd1)])))).durationSec || 0) - 24.024) < 1e-9);
+    // A header too short to say: no length (the clock is still read).
+    const tc = await readSourceInfo(blobReader(movie({ frame: 30, timescale: 30, frameDuration: 1 })));
+    assert.equal(tc.durationSec, undefined);
+    assert.equal(tc.timecode?.seconds, 1);
   });
 
   it('no timecode track (or not a movie): the clock starts at 0', async () => {

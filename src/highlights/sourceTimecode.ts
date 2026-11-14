@@ -62,11 +62,16 @@ function boxes(v: DataView, start: number, end: number): { type: string; body: n
 }
 const child = (v: DataView, parent: { body: number; end: number }, type: string) => boxes(v, parent.body, parent.end).find((b) => b.type === type);
 
-/** The file's start timecode, or null when it has none (the clock then starts at 0). */
-export async function readSourceTimecode(r: ByteReader): Promise<SourceTimecode | null> {
-  // The top-level boxes, header by header, to the movie header ("moov"), wherever it is (cameras often put it last).
+export interface SourceInfo {
+  /** The camera's clock, or null when the file has none (its clock then starts at 0). */
+  timecode: SourceTimecode | null;
+  /** How long the file runs (seconds), from its movie header; undefined when it doesn't say. */
+  durationSec?: number;
+}
+
+/** The movie header ("moov"), found top-level box by box wherever it is (cameras often put it last); null if none. */
+async function movieHeader(r: ByteReader): Promise<DataView | null> {
   let at = 0;
-  let moov: DataView | null = null;
   for (let n = 0; n < 64 && at + 8 <= r.size; n++) {
     const h = await r.read(at, 16);
     if (h.byteLength < 8) break;
@@ -75,16 +80,38 @@ export async function readSourceTimecode(r: ByteReader): Promise<SourceTimecode 
     if (size === 1 && h.byteLength >= 16) size = u64(h, 8);
     else if (size === 0) size = r.size - at;
     if (size < 8) break;
-    if (type === 'moov') {
-      if (size > 64 * 1024 * 1024) return null;
-      moov = await r.read(at, size);
-      break;
-    }
+    if (type === 'moov') return size > 64 * 1024 * 1024 ? null : r.read(at, size);
     at += size;
   }
-  if (!moov) return null;
-  const top = boxes(moov, 0, moov.byteLength)[0];
-  if (!top || top.type !== 'moov') return null;
+  return null;
+}
+
+/** The file's length and its start timecode, from its movie header (plus the timecode's one 4-byte sample). */
+export async function readSourceInfo(r: ByteReader): Promise<SourceInfo> {
+  const moov = await movieHeader(r);
+  const top = moov && boxes(moov, 0, moov.byteLength)[0];
+  if (!moov || !top || top.type !== 'moov') return { timecode: null };
+  // "mvhd": version and flags, then created, modified, timescale and length (4 bytes each; version 1: created,
+  // modified and length are 8).
+  let durationSec: number | undefined;
+  const mvhd = child(moov, top, 'mvhd');
+  if (mvhd && mvhd.body < mvhd.end) {
+    const v1 = moov.getUint8(mvhd.body) === 1;
+    if (mvhd.body + (v1 ? 32 : 20) <= mvhd.end) {
+      const scale = moov.getUint32(mvhd.body + (v1 ? 20 : 12));
+      const len = v1 ? u64(moov, mvhd.body + 24) : moov.getUint32(mvhd.body + 16);
+      if (scale && len && len !== 0xffffffff) durationSec = len / scale;
+    }
+  }
+  return { timecode: await timecodeIn(r, moov, top), ...(durationSec ? { durationSec } : {}) };
+}
+
+/** The file's start timecode, or null when it has none (the clock then starts at 0). */
+export async function readSourceTimecode(r: ByteReader): Promise<SourceTimecode | null> {
+  return (await readSourceInfo(r)).timecode;
+}
+
+async function timecodeIn(r: ByteReader, moov: DataView, top: { body: number; end: number }): Promise<SourceTimecode | null> {
   for (const trak of boxes(moov, top.body, top.end).filter((b) => b.type === 'trak')) {
     const mdia = child(moov, trak, 'mdia');
     const hdlr = mdia && child(moov, mdia, 'hdlr');

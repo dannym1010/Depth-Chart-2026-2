@@ -13,6 +13,8 @@ export interface GameFilm {
   /** Camera views in order (Main first); one entry ('') when the clips are right in the game folder. */
   views: string[];
   lists: FilmClip[][];
+  /** Each view's folder in the game folder ("Main", "Field"); '' for clips right in the game folder ("Film" or ''). */
+  folders?: string[];
   /** The game folder under the film folder ("10U", "Week 3 - Shrub Oak"); the root itself is left out. */
   path: string[];
   /** Which copy it came from. */
@@ -20,6 +22,8 @@ export interface GameFilm {
   /** The film folder's own name ("Mahopac Film"), and whether it's the team film server's. */
   root?: string;
   server?: boolean;
+  /** The film folder on this computer (a FileSystemDirectoryHandle), when the film came from it. */
+  rootHandle?: any;
 }
 
 export type AccessState = 'ready' | 'ask' | 'signin' | 'none';
@@ -57,10 +61,23 @@ export function clipLength(url: string): Promise<number | undefined> {
   });
 }
 
+/** Which of the game's views a clip's view is: by its name ('' or a missing view = the first, Main). */
+export function viewIndex(film: GameFilm, view: string): number {
+  const i = film.views.findIndex((v) => v.toLowerCase() === String(view || '').toLowerCase());
+  return i >= 0 ? i : 0;
+}
+
 /** The view's clips, by its name ('' or a missing view = the first). */
 export function viewClips(film: GameFilm, view: string): FilmClip[] {
-  const i = film.views.findIndex((v) => v.toLowerCase() === String(view || '').toLowerCase());
-  return film.lists[i >= 0 ? i : 0] || [];
+  return film.lists[viewIndex(film, view)] || [];
+}
+
+/** The folder a view's clips are in, inside the game folder ('' = the game folder itself). */
+export function viewFolder(film: GameFilm, view: string): string {
+  const i = viewIndex(film, view);
+  if (film.folders) return film.folders[i] || '';
+  const v = film.views[i] || '';
+  return v === 'Film' ? '' : v;
 }
 
 /**
@@ -142,7 +159,17 @@ export function realFilmAccess(opts: { teamName: string; rootDriveId?: string; r
         why = `No videos in ${found.path.join(' › ')}.`;
         continue;
       }
-      return { views, lists, path: found.path.slice(1), from, files, root: found.path[0], server: Boolean(node.serverPath !== undefined) };
+      return {
+        views,
+        lists,
+        folders: viewNodes.map((v) => (v === found.node ? '' : v.name)),
+        path: found.path.slice(1),
+        from,
+        files,
+        root: found.path[0],
+        server: Boolean(node.serverPath !== undefined),
+        ...(node.handle ? { rootHandle: node.handle } : {}),
+      };
     }
     throw new Error(why || `No film found for ${game.name}.`);
   };

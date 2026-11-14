@@ -13,10 +13,11 @@ import { drawSpotIn } from './socialVideo';
 import { ClipPicture } from './ClipPicture';
 import { chapters, clock, playLabel, timelineSeconds, type Segment } from './highlightData';
 import { angleWindow, buildPlan, frameSize, joinPath, readMe, toCsv, toEdl, toFcpxml, toOtio, toXmeml, withAngles, type ExportPlan } from './exporters';
-import { clipLength, lineUp } from './filmAccess';
+import { clipLength, lineUp, viewFolder, viewIndex } from './filmAccess';
 import { savedOffset } from '../filmroom/dualView';
-import { filmServerRoot } from '../filmroom/filmSources';
-import { blobReader, readSourceTimecode } from './sourceTimecode';
+import { filmServerFolder } from '../filmroom/filmSources';
+import { blobReader, readSourceInfo } from './sourceTimecode';
+import { DRIVES, driveFolderLetter, driveOf, filmPathFrom, folderInside, libraryPathFrom, onDrive, tidyPath } from './exportPaths';
 import type { FilmGameShared } from '../filmroom/types';
 import { canWriteFolders, cleanName, DB_FILE, dbJson, libraryFolder, loadPaths, pickLibrary, savePaths, subfolder, writeFile } from './localLibrary';
 import type { ExportFormat, Highlight, HighlightsData, HighlightSettings } from './types';
@@ -93,12 +94,17 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
   const [error, setError] = useState('');
   const say = (line: string) => setLog((l) => [...l.slice(-60), line]);
 
+  // The highlights folder (the local library) on this computer.
+  const [lib, setLib] = useState<any>(null);
   useEffect(() => {
-    void libraryFolder().then(({ handle }) => handle && setLibName(handle.name));
+    void libraryFolder().then(({ handle }) => {
+      if (!handle) return;
+      setLib(handle);
+      setLibName(handle.name);
+    });
   }, []);
-  // A path pasted from File Explorer's "Copy as path" comes in quotes: they'd be part of every file's address.
-  const cleanPath = (v: string) => v.trim().replace(/^["']+|["']+$/g, '').trim();
-  // As typed (tidied when the box is left, and at the export: tidying each keystroke would eat the space being typed).
+  // What was typed or picked, kept on this computer (typing is tidied when the box is left: tidying each keystroke
+  // would eat the space being typed).
   const setPath = (k: 'film' | 'library', v: string) => {
     setPaths((cur) => {
       const next = { ...cur, [k]: v };
@@ -106,47 +112,68 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
       return next;
     });
   };
-  // The film folder the film here comes from (its name: the typed path should end with it), or the team film server's.
-  const [filmRoot, setFilmRoot] = useState<{ name: string; server: boolean; local: boolean } | null>(null);
-  const [rootFromServer, setRootFromServer] = useState(false);
+  // The film folder the film here comes from: its name, and its folder on this computer (undefined while it's looked
+  // up, null when there's no film to look at).
+  const [filmRoot, setFilmRoot] = useState<{ name: string; server: boolean; local: boolean; handle?: any } | null | undefined>(undefined);
+  // The team film server's own path for its film folder ("E:\Mahopac Film").
+  const [serverRoot, setServerRoot] = useState('');
   useEffect(() => {
     const first = clips[0]?.game;
-    if (!first) return;
+    if (!first) {
+      setFilmRoot(null);
+      return;
+    }
     let off = false;
     void (async () => {
       const film = await access.openGame(first).catch(() => null);
-      if (off || !film) return;
-      setFilmRoot({ name: film.root || '', server: Boolean(film.server), local: film.from === 'local' });
-      // The film server knows the folder's real path on its computer: no typing (when it runs on this one).
-      if (film.server && !loadPaths().film) {
-        const root = await filmServerRoot();
-        if (!off && root) {
-          setPath('film', root);
-          setRootFromServer(true);
-        }
+      if (off) return;
+      if (!film) {
+        setFilmRoot(null);
+        return;
       }
+      const info = film.server ? await filmServerFolder() : null;
+      if (off) return;
+      setFilmRoot({ name: info?.name || film.root || '', server: Boolean(film.server), local: film.from === 'local', handle: film.rootHandle });
+      if (info?.root) setServerRoot(info.root);
     })();
     return () => {
       off = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  /** The typed film folder ends with the folder the film here comes from (case and slashes aside). */
-  const lastFolder = (p: string) => cleanPath(p).replace(/[\\/]+$/, '').split(/[\\/]/).pop()?.toLowerCase() || '';
-  const filmPathOk = !filmRoot?.name || filmRoot.server || !filmRoot.local || !paths.film.trim() || lastFolder(paths.film) === filmRoot.name.toLowerCase();
-  // Both folders known (this computer remembers them): a line saying so, with Change.
-  const [editPaths, setEditPaths] = useState(() => {
-    const p = loadPaths();
-    return !(p.film && p.library);
-  });
-  // A first guess for the highlights folder's place: next to the film folder.
+  // Where the highlights folder sits inside the film folder (["10U", "Highlights"]): its full path then follows.
+  const [libInside, setLibInside] = useState<string[] | null>(null);
   useEffect(() => {
-    if (!paths.library && libName && paths.film) {
-      const parent = cleanPath(paths.film).replace(/[\\/][^\\/]*[\\/]?$/, '');
-      if (parent && parent !== cleanPath(paths.film)) setPath('library', joinPath(parent, libName));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [libName, paths.film]);
+    let off = false;
+    void folderInside(filmRoot?.handle, lib).then((r) => !off && setLibInside(r));
+    return () => {
+      off = true;
+    };
+  }, [filmRoot, lib]);
+  // The two folders' full paths, worked out (nothing typed): the film folder from its drive (picked once, or from a
+  // path typed before) and its name, or from the team film server; the highlights folder from its place in it.
+  const rootName = filmRoot?.name || '';
+  const filmPath = filmPathFrom(paths.film || serverRoot, rootName, Boolean(filmRoot?.local && !filmRoot.server));
+  const libPlace = libraryPathFrom({ film: filmPath, inside: libInside, typed: paths.library, name: libName });
+  const libPath = libPlace.path;
+  // Windows: the film folder's drive is picked from a list. Elsewhere (a Mac's /Volumes/...) it's typed.
+  const windows = typeof navigator !== 'undefined' && /win/i.test(navigator.platform || navigator.userAgent);
+  // (A film folder that is a whole drive says its own letter: nothing to pick.)
+  const canPickDrive = windows && Boolean(rootName) && !driveFolderLetter(rootName);
+  // The boxes to type in: asked for, or needed (no drive to pick). Once open they stay open (the path being typed
+  // would close them at its first letter) until Done.
+  const [typing, setTyping] = useState(false);
+  const needBoxes = filmRoot !== undefined && !canPickDrive && !filmPath;
+  useEffect(() => {
+    if (needBoxes) setTyping(true);
+  }, [needBoxes]);
+  const showBoxes = typing || needBoxes;
+  const pickLib = async () => {
+    const h = await pickLibrary();
+    if (!h) return;
+    setLib(h);
+    setLibName(h.name);
+  };
 
   const clipsUsed = useMemo(() => filesOf(segments), [segments]);
 
@@ -160,16 +187,19 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
       seen.add(h.id);
       if (h.kind !== 'play' || !h.playId) continue;
       const film = await access.openGame(h.game).catch(() => null);
-      const views = (film?.views || []).filter((v) => v && v !== h.view);
-      if (!film || !views.length) continue;
+      if (!film) continue;
+      // Its own camera by name (a highlight kept with no camera plays the first one, Main): not "the other camera".
+      const own = film.views[viewIndex(film, h.view)];
+      const views = film.views.filter((v) => v && v !== own);
+      if (!views.length) continue;
       const shared: Partial<FilmGameShared> = loadShared ? await loadShared(h.game.key).catch(() => ({})) : {};
       const gamePlays = plays.filter((p) => p.gameId === h.game.gameId);
       for (const view of views) {
         // Its replay already comes from that camera.
-        if (h.replay && h.replay.view === view) continue;
+        if (h.replay && film.views[viewIndex(film, h.replay.view)] === view) continue;
         const c = lineUp(film, view, gamePlays, shared).clipOf.get(h.playId);
         if (!c) continue;
-        const offset = savedOffset(shared.viewShift, h.playId, h.view, view);
+        const offset = savedOffset(shared.viewShift, h.playId, own, view);
         let len = c.durationSec;
         if (!len && offset === undefined) {
           const u = await access.url(h.game, view, c.name).catch(() => null);
@@ -186,7 +216,7 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
     return out;
   };
 
-  const ready = Boolean(paths.library.trim()) && (mode !== 'link' || Boolean(paths.film.trim())) && (!clips.length || keep.size > 0);
+  const ready = Boolean(libPath) && (mode !== 'link' || Boolean(filmPath)) && (!clips.length || keep.size > 0);
   const fmt = FORMATS.find((f) => f.id === format)!;
   const zoomed = useMemo(() => new Set(segments.filter((s) => s.type !== 'card' && hasClipZoom(s.h)).map((s) => (s.type === 'card' ? '' : s.h.id))).size, [segments]);
 
@@ -205,15 +235,43 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
       if (!handle || !ok) throw new Error('Pick the highlights folder first (Chrome or Edge on a computer).');
       const reelDir = await subfolder(handle, [season, reelName]);
       const gDir = await subfolder(reelDir, ['Graphics']);
-      const reelPath = joinPath(cleanPath(paths.library), season, cleanName(reelName));
+      const reelPath = joinPath(libPath, season, cleanName(reelName));
       const { width, height } = frameSize(settings);
 
+      // The camera each piece really comes from, by name: a highlight kept with no camera ('') plays the game's first
+      // one (Main). Its folder goes in the file's path, and "the other camera" is never the same one.
+      const camCache = new Map<string, string>();
+      const camOf = async (game: Highlight['game'], view: string) => {
+        const key = `${game.key}|${view}`;
+        let v = camCache.get(key);
+        if (v === undefined) {
+          const film = await access.openGame(game).catch(() => null);
+          v = film ? (film.views[viewIndex(film, view)] ?? view) : view;
+          camCache.set(key, v);
+        }
+        return v;
+      };
+      const realH = new Map<string, Highlight>();
+      let all: Segment[] = [];
+      for (const s of segments) {
+        if (s.type === 'card') {
+          all.push(s);
+          continue;
+        }
+        let h = realH.get(s.h.id);
+        if (!h) {
+          const v = await camOf(s.h.game, s.h.view);
+          h = v === s.h.view ? s.h : { ...s.h, view: v };
+          realH.set(s.h.id, h);
+        }
+        all.push({ ...s, h, view: await camOf(s.h.game, s.view) });
+      }
+
       // Both cameras: each play's other camera goes right after it (after its replay).
-      let all = segments;
       if (bothCams) {
         say('Looking for each play on the other camera…');
-        const angles = await otherAngles(segments);
-        all = withAngles(segments, angles);
+        const angles = await otherAngles(all);
+        all = withAngles(all, angles);
         say(angles.size ? `${angles.size} play${angles.size === 1 ? '' : 's'} from both cameras.` : 'No play here has a second camera.');
       }
       const used = filesOf(all);
@@ -221,14 +279,16 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
       // Where each clip is (or its copy), how the copy shifts its times, and where the file's own clock starts.
       const where = new Map<string, { path: string; base: number; durationSec?: number; tc?: number }>();
       const gameShort = (name: string) => cleanName(name.replace(/^\s*(pre-?season\s+)?week\s*(\d+)\s*[-–:]?\s*/i, 'Wk$2 ').slice(0, 24));
-      // A camera file's own clock (its timecode: the time of day on phones, GoPros, DJIs). DaVinci Resolve finds a
-      // clip's moments by it; a timeline that says the file starts at 0:00 finds nothing ("media offline").
-      const clockOf = async (game: Highlight['game'], view: string, clip: string, file?: Blob) => {
+      // A camera file's own clock (its timecode: the time of day on phones, GoPros, DJIs) and its length, from its
+      // header. DaVinci Resolve finds a clip's moments by the clock; a timeline that says the file starts at 0:00 finds
+      // nothing ("media offline").
+      const fileInfo = async (game: Highlight['game'], view: string, clip: string, file?: Blob) => {
         try {
           const r = file ? blobReader(file) : access.reader ? await access.reader(game, view, clip) : blobReader(await access.file(game, view, clip));
-          return (await readSourceTimecode(r))?.seconds || 0;
+          const info = await readSourceInfo(r);
+          return { tc: info.timecode?.seconds || 0, durationSec: info.durationSec };
         } catch {
-          return 0;
+          return { tc: 0, durationSec: undefined };
         }
       };
       let clocks = 0;
@@ -241,13 +301,17 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
         const cam = !own && c.view ? `${c.view} ` : '';
         if (mode === 'link') {
           const film = await access.openGame(c.h.game);
-          // The camera's own folder ("Main", "Field") whenever the clips are in one (not the game folder itself:
-          // '' or "Film"), one camera or several. It used to be left out when a game had only one camera folder.
-          const viewFolder = c.view && c.view !== 'Film' ? c.view : '';
-          const clipInfo = film.lists[Math.max(0, film.views.indexOf(c.view))]?.find((x) => x.name === c.clip);
-          const tc = await clockOf(c.h.game, c.view, c.clip);
-          if (tc) clocks++;
-          where.set(key, { path: joinPath(cleanPath(paths.film), ...film.path, viewFolder, c.clip), base: 0, durationSec: clipInfo?.durationSec || (own ? c.h.clipLen : undefined), tc });
+          const clipInfo = film.lists[viewIndex(film, c.view)]?.find((x) => x.name === c.clip);
+          const info = await fileInfo(c.h.game, c.view, c.clip);
+          if (info.tc) clocks++;
+          // The camera's own folder ("Main", "Field") whenever its clips are in one: not for clips right in the game
+          // folder.
+          where.set(key, {
+            path: joinPath(filmPath, ...film.path, viewFolder(film, c.view), c.clip),
+            base: 0,
+            durationSec: info.durationSec || clipInfo?.durationSec || (own ? c.h.clipLen : undefined),
+            tc: info.tc,
+          });
           continue;
         }
         const cDir = await subfolder(reelDir, ['Clips']);
@@ -257,9 +321,9 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
           const name = `${gameShort(c.h.game.name)} ${cam}${c.clip}`;
           await writeFile(cDir, name, file);
           // A copy keeps the camera's clock.
-          const tc = await clockOf(c.h.game, c.view, c.clip, file);
-          if (tc) clocks++;
-          where.set(key, { path: joinPath(reelPath, 'Clips', cleanName(name)), base: 0, durationSec: own ? c.h.clipLen : undefined, tc });
+          const info = await fileInfo(c.h.game, c.view, c.clip, file);
+          if (info.tc) clocks++;
+          where.set(key, { path: joinPath(reelPath, 'Clips', cleanName(name)), base: 0, durationSec: info.durationSec || (own ? c.h.clipLen : undefined), tc: info.tc });
         } else {
           const base = Math.max(0, c.from - handles);
           const name = `${gameShort(c.h.game.name)} ${cam}${c.clip.replace(/\.[^.]+$/, '')} ${base.toFixed(1)}s.mp4`;
@@ -393,73 +457,91 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
           </fieldset>
         )}
 
-        <fieldset className="flex flex-col gap-2">
+        <fieldset className="flex flex-col gap-1.5" disabled={running}>
           <legend className="font-black text-slate-800 dark:text-slate-100 mb-1">Where the folders are</legend>
-          {!editPaths && filmPathOk && paths.film && paths.library ? (
-            // Known on this computer: said, not asked again.
-            <div className="flex items-start gap-2 text-xs">
-              <span className="min-w-0 flex-1 text-slate-600 dark:text-slate-300">
-                Film: <b className="break-all text-slate-800 dark:text-slate-100">{paths.film}</b>
-                <br />
-                Highlights: <b className="break-all text-slate-800 dark:text-slate-100">{paths.library}</b>
-              </span>
-              <button type="button" onClick={() => setEditPaths(true)} disabled={running} className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-600 font-bold shrink-0">
-                Change
-              </button>
-            </div>
-          ) : (
-            <>
+          {/* Worked out, nothing typed: the film folder's drive is the one thing a browser can't see (picked once). */}
+          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 text-xs">
+            <span className="text-slate-500">Film</span>
+            {filmPath ? (
+              <b className="break-all text-slate-800 dark:text-slate-100" data-path="film">
+                {filmPath}
+              </b>
+            ) : (
+              <span className="font-bold text-amber-700 dark:text-amber-300">{canPickDrive ? `Which drive is “${rootName}” on?` : filmRoot === undefined ? 'Looking…' : 'Type where the film folder is (below).'}</span>
+            )}
+            {canPickDrive ? (
+              <select
+                aria-label="The film folder's drive"
+                value={driveOf(filmPath)}
+                onChange={(e) => e.target.value && setPath('film', onDrive(filmPath, e.target.value))}
+                className="h-8 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 px-1 font-bold"
+              >
+                <option value="">Drive</option>
+                {DRIVES.map((d) => (
+                  <option key={d} value={d}>
+                    {d}:
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span />
+            )}
+            <span className="text-slate-500">Highlights</span>
+            {libPath ? (
+              <b className="break-all text-slate-800 dark:text-slate-100" data-path="library">
+                {libPath}
+              </b>
+            ) : (
+              <span className="text-slate-500">{lib ? 'Pick the film folder’s drive first.' : 'Pick the highlights folder.'}</span>
+            )}
+            <button
+              type="button"
+              disabled={!canWriteFolders()}
+              onClick={() => void pickLib()}
+              className="h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-600 font-bold inline-flex items-center justify-center gap-1 disabled:opacity-40"
+            >
+              <FolderOpen size={13} /> {libName ? 'Pick another' : 'Pick'}
+            </button>
+          </div>
+          {serverRoot && !paths.film && filmPath === serverRoot && <p className="text-[11px] text-slate-500">The film folder's place comes from the team film server (its computer).</p>}
+          {libPlace.place === 'guess' && <p className="text-[11px] text-amber-700 dark:text-amber-300">The highlights folder is taken to be next to the film folder. Somewhere else? Type it below.</p>}
+          {showBoxes ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-slate-200 dark:border-slate-700 p-2">
               <label className="flex flex-col gap-1 text-xs">
-                <span className="text-slate-600 dark:text-slate-300">The film folder on this computer, the way the editor sees it</span>
+                <span className="text-slate-600 dark:text-slate-300">The film folder (or just its drive, like J:)</span>
                 <input
                   className={input}
                   value={paths.film}
                   onChange={(e) => setPath('film', e.target.value)}
-                  onBlur={(e) => setPath('film', cleanPath(e.target.value))}
-                  placeholder={`J:\\${filmRoot?.local && !filmRoot.server && filmRoot.name ? filmRoot.name : 'Mahopac Film'}`}
+                  onBlur={(e) => setPath('film', tidyPath(e.target.value))}
+                  placeholder={`J:\\${rootName || 'Mahopac Film'}`}
                   aria-label="The film folder"
                 />
               </label>
-              {rootFromServer ? (
-                <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 -mt-1">Filled in by the team film server (where its film folder is on that computer).</p>
-              ) : filmRoot?.name && filmRoot.local && !filmRoot.server && paths.film.trim() ? (
-                filmPathOk ? (
-                  <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 -mt-1">✓ Ends with “{filmRoot.name}”, the folder the film here comes from.</p>
-                ) : (
-                  <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300 -mt-1" role="alert">
-                    The film here comes from a folder called “{filmRoot.name}”: this should be where that folder is, ending in \{filmRoot.name} (like J:\{filmRoot.name}).
-                  </p>
-                )
-              ) : null}
-              <div className="flex flex-wrap items-end gap-2 text-xs">
-                <label className="flex flex-col gap-1 flex-1 min-w-48">
-                  <span className="text-slate-600 dark:text-slate-300">The highlights folder (the local library){libName ? `: “${libName}” picked` : ''}</span>
+              {libPlace.place !== 'inside' && (
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="text-slate-600 dark:text-slate-300">The highlights folder{libName ? ` (“${libName}”)` : ''}</span>
                   <input
                     className={input}
                     value={paths.library}
                     onChange={(e) => setPath('library', e.target.value)}
-                    onBlur={(e) => setPath('library', cleanPath(e.target.value))}
+                    onBlur={(e) => setPath('library', tidyPath(e.target.value))}
                     placeholder={`J:\\${libName || 'Mahopac Highlights'}`}
                     aria-label="The highlights folder"
                   />
                 </label>
-                <button
-                  type="button"
-                  disabled={!canWriteFolders() || running}
-                  onClick={async () => {
-                    const h = await pickLibrary();
-                    if (h) setLibName(h.name);
-                  }}
-                  className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-600 font-bold inline-flex items-center gap-1 disabled:opacity-40"
-                >
-                  <FolderOpen size={13} /> {libName ? 'Pick another' : 'Pick the folder'}
+              )}
+              <p className="text-[11px] text-slate-500">Quickest: in File Explorer click the folder, press Ctrl+Shift+C (Copy as path) and paste it here.</p>
+              {typing && (
+                <button type="button" onClick={() => setTyping(false)} className="self-start h-7 px-3 rounded-lg border border-slate-300 dark:border-slate-600 font-bold">
+                  Done
                 </button>
-              </div>
-              <p className="text-[11px] text-slate-500">
-                A browser can't see where a folder is (its drive letter), so this computer asks once and remembers. Quickest: in File Explorer, click the folder, press
-                Ctrl+Shift+C (Copy as path) and paste it here. The highlights folder is filled in when it sits next to the film folder.
-              </p>
-            </>
+              )}
+            </div>
+          ) : (
+            <button type="button" onClick={() => setTyping(true)} className="self-start text-[11px] font-bold text-indigo-600 dark:text-indigo-300 hover:underline">
+              Somewhere else? Type the folders
+            </button>
           )}
         </fieldset>
 
@@ -570,7 +652,15 @@ export const ExportPanel: React.FC<Props> = ({ reelName: fullName, segments: all
           </button>
           {!ready && (
             <span className="text-xs text-slate-500">
-              {clips.length && !keep.size ? 'Pick at least one clip.' : `Type where the ${!paths.library.trim() ? 'highlights folder' : 'film folder'} is first.`}
+              {clips.length && !keep.size
+                ? 'Pick at least one clip.'
+                : !lib
+                  ? 'Pick the highlights folder first.'
+                  : !filmPath
+                    ? canPickDrive
+                      ? 'Pick the film folder’s drive first.'
+                      : 'Type where the film folder is first.'
+                    : 'Type where the highlights folder is first.'}
             </span>
           )}
         </div>
