@@ -1,7 +1,12 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Check, Crown, Download, Edit3, Plus, Shield, Trash2, Upload, UserPlus, X } from 'lucide-react';
 import { isProgramAdminEmail } from '../../utils/staffAccess';
-import { parseBasketballRosterInput, parseTeamSnapMembersResponse } from '../storage';
+import {
+  BASKETBALL_SEASONS,
+  normalizeSeasonLabel,
+  parseBasketballRosterInput,
+  parseTeamSnapMembersResponse,
+} from '../storage';
 import type {
   BasketballPlayer,
   BasketballStaffMember,
@@ -17,6 +22,7 @@ interface BasketballUsersViewProps {
   staff: BasketballStaffMember[];
   readOnly?: boolean;
   onSelectTeam: (teamId: string) => void;
+  onSwitchSeason?: (season: string) => void;
   onAddTeam: (team: Omit<BasketballTeam, 'id'>) => void;
   onUpdateTeam: (teamId: string, updates: Partial<BasketballTeam>) => void;
   onAddPlayer: (player: Omit<BasketballPlayer, 'id'>) => void;
@@ -44,6 +50,7 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
   staff,
   readOnly = false,
   onSelectTeam,
+  onSwitchSeason,
   onAddTeam,
   onUpdateTeam,
   onAddPlayer,
@@ -75,7 +82,7 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
     tags: string;
   } | null>(null);
 
-  const [newTeam, setNewTeam] = useState({ name: '', season: '2026-27 Winter' });
+  const [newTeam, setNewTeam] = useState({ name: '', season: '2026-27' });
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
   const [teamDraft, setTeamDraft] = useState({ name: '', season: '', calendarUrl: '' });
 
@@ -104,6 +111,10 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
   const activeTeam = useMemo(
     () => teams.find((t) => t.id === activeTeamId) || teams[0],
     [teams, activeTeamId]
+  );
+  const activeSeason = useMemo(
+    () => normalizeSeasonLabel(activeTeam?.season),
+    [activeTeam?.season]
   );
 
   const handleAddPlayer = (e: React.FormEvent) => {
@@ -156,10 +167,10 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
     if (!newTeam.name.trim()) return;
     onAddTeam({
       name: newTeam.name.trim(),
-      season: newTeam.season.trim() || '2026-27 Winter',
+      season: newTeam.season.trim() || '2026-27',
       accentColor: '#f59e0b',
     });
-    setNewTeam({ name: '', season: '2026-27 Winter' });
+    setNewTeam({ name: '', season: activeSeason || '2026-27' });
   };
 
   const handleAddStaff = (e: React.FormEvent) => {
@@ -297,28 +308,48 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60">
             <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-              {activeTeam?.name || 'Team'} Roster{' '}
+              {activeTeam?.name || 'Team'} · {activeTeam?.season || activeSeason} Roster{' '}
               <span className="font-normal text-zinc-500 dark:text-zinc-400">
-                — Separate per team ({roster.length} players)
+                — Separate per team &amp; year ({roster.length} players)
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {teams.length > 1 && (
-                <div className="flex items-center gap-1.5">
-                  {teams.map((t) => (
+              {onSwitchSeason && (
+                <div className="inline-flex items-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 p-0.5">
+                  {BASKETBALL_SEASONS.map((s) => (
                     <button
-                      key={t.id}
+                      key={s}
                       type="button"
-                      onClick={() => onSelectTeam(t.id)}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors ${
-                        t.id === activeTeamId
-                          ? 'bg-amber-500 text-zinc-950 border-amber-500'
-                          : 'border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-300 hover:border-zinc-400'
+                      onClick={() => onSwitchSeason(s)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer ${
+                        activeSeason === s
+                          ? 'bg-amber-500 text-zinc-950'
+                          : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
                       }`}
                     >
-                      {t.name}
+                      {s}
                     </button>
                   ))}
+                </div>
+              )}
+              {teams.filter((t) => normalizeSeasonLabel(t.season) === activeSeason).length > 1 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {teams
+                    .filter((t) => normalizeSeasonLabel(t.season) === activeSeason)
+                    .map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => onSelectTeam(t.id)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors ${
+                          t.id === activeTeamId
+                            ? 'bg-amber-500 text-zinc-950 border-amber-500'
+                            : 'border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-300 hover:border-zinc-400'
+                        }`}
+                      >
+                        {t.name} ({t.season})
+                      </button>
+                    ))}
                 </div>
               )}
               {!readOnly && (
@@ -912,12 +943,18 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
               </div>
               <div className="w-40">
                 <label className="block text-[11px] font-medium text-zinc-500 mb-1">Season</label>
-                <input
-                  type="text"
+                <select
                   value={newTeam.season}
                   onChange={(e) => setNewTeam({ ...newTeam, season: e.target.value })}
+                  aria-label="New team season"
                   className="w-full h-9 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs"
-                />
+                >
+                  {BASKETBALL_SEASONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
               </div>
               <button
                 type="submit"
@@ -1048,7 +1085,7 @@ export const BasketballUsersView: React.FC<BasketballUsersViewProps> = ({
               <div>
                 <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-50 flex items-center gap-2">
                   <Download className="w-4 h-4 text-amber-500" />
-                  <span>Import TeamSnap Roster — {activeTeam?.name}</span>
+                  <span>Import TeamSnap Roster — {activeTeam?.name} ({activeTeam?.season})</span>
                 </h2>
                 <p className="text-[11px] text-zinc-500 mt-0.5">
                   Export your TeamSnap roster CSV (<b>Roster → Export</b>), copy-paste rows directly from TeamSnap, or sync via TeamSnap API.

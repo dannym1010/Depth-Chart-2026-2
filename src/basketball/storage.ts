@@ -10,6 +10,7 @@ import type {
   BasketballPossession,
   BasketballStaffMember,
   BasketballState,
+  BasketballTeam,
   BasketballTeamData,
   CourtPosition,
   DefenseType,
@@ -37,6 +38,15 @@ const LEGACY_DEMO_STAFF_EMAILS = new Set([
   'coach.mike@mahopachoops.org',
   'brennan.family@gmail.com',
 ]);
+
+export const BASKETBALL_SEASONS = ['2025-26', '2026-27'] as const;
+
+export function normalizeSeasonLabel(season?: string): string {
+  const s = String(season || '').trim();
+  if (s.includes('2025-26') || s.includes('25-26')) return '2025-26';
+  if (s.includes('2026-27') || s.includes('26-27')) return '2026-27';
+  return s || '2026-27';
+}
 
 export const DEFAULT_BASKETBALL_SETS = [
   '5-Out Motion',
@@ -237,8 +247,10 @@ export const SAMPLE_BASKETBALL_STATE: BasketballState = {
 
 export const DEFAULT_BASKETBALL_STATE: BasketballState = {
   teams: [
-    { id: 'bball-10u-boys', name: 'Mahopac 10U Travel', season: '2026-27 Winter', accentColor: '#f59e0b' },
-    { id: 'bball-12u-gold', name: 'Mahopac 12U Gold', season: '2026-27 Winter', accentColor: '#2563eb' },
+    { id: 'bball-10u-boys-25-26', name: 'Mahopac 10U Travel', season: '2025-26', accentColor: '#f59e0b' },
+    { id: 'bball-12u-gold-25-26', name: 'Mahopac 12U Gold', season: '2025-26', accentColor: '#2563eb' },
+    { id: 'bball-10u-boys', name: 'Mahopac 10U Travel', season: '2026-27', accentColor: '#f59e0b' },
+    { id: 'bball-12u-gold', name: 'Mahopac 12U Gold', season: '2026-27', accentColor: '#2563eb' },
   ],
   activeTeamId: 'bball-10u-boys',
   activeGameIdByTeam: {},
@@ -250,11 +262,21 @@ export const DEFAULT_BASKETBALL_STATE: BasketballState = {
       email: 'dannym1010@gmail.com',
       role: 'Admin',
       status: 'Active',
-      teamIds: ['bball-10u-boys', 'bball-12u-gold'],
+      teamIds: ['bball-10u-boys-25-26', 'bball-12u-gold-25-26', 'bball-10u-boys', 'bball-12u-gold'],
       linkedPlayerNums: [],
     },
   ],
   teamData: {
+    'bball-10u-boys-25-26': {
+      roster: [],
+      customSets: DEFAULT_BASKETBALL_SETS,
+      games: [],
+    },
+    'bball-12u-gold-25-26': {
+      roster: [],
+      customSets: DEFAULT_BASKETBALL_SETS,
+      games: [],
+    },
     'bball-10u-boys': {
       roster: [],
       customSets: DEFAULT_BASKETBALL_SETS,
@@ -331,9 +353,47 @@ function normalizeWithMeta(raw: Partial<BasketballState> | null | undefined): {
     Array.isArray(raw.staff) ? raw.staff : []
   );
 
+  const teams: BasketballTeam[] = raw.teams.map((t) => ({
+    ...t,
+    season: normalizeSeasonLabel(t.season),
+  }));
+  const updatedTeamData = { ...teamData };
+  let updatedStaff = staff;
+
+  for (const t of teams) {
+    if (!updatedTeamData[t.id]) {
+      updatedTeamData[t.id] = { roster: [], games: [], customSets: DEFAULT_BASKETBALL_SETS };
+    }
+  }
+
+  // Ensure both 2025-26 and 2026-27 exist with independent rosters/schedules/TeamSnap syncs
+  const baseTeam = teams[0];
+  for (const reqSeason of BASKETBALL_SEASONS) {
+    if (!teams.some((t) => normalizeSeasonLabel(t.season) === reqSeason)) {
+      const slug = reqSeason.replace(/[^a-z0-9]/gi, '');
+      const defaultId =
+        reqSeason === '2025-26' ? `${baseTeam.id}-25-26` : `${baseTeam.id}-${slug}`;
+      const newId = teams.some((t) => t.id === defaultId)
+        ? `${defaultId}-${Date.now()}`
+        : defaultId;
+      teams.push({
+        id: newId,
+        name: baseTeam.name,
+        season: reqSeason,
+        accentColor: baseTeam.accentColor,
+      });
+      updatedTeamData[newId] = { roster: [], games: [], customSets: DEFAULT_BASKETBALL_SETS };
+      updatedStaff = updatedStaff.map((m) =>
+        m.role === 'Admin' && !m.teamIds.includes(newId)
+          ? { ...m, teamIds: [...m.teamIds, newId] }
+          : m
+      );
+    }
+  }
+
   const activeGameIdByTeam: Record<string, string> = {};
   for (const [tid, gid] of Object.entries(raw.activeGameIdByTeam || {})) {
-    const teamGames = teamData[tid]?.games || [];
+    const teamGames = updatedTeamData[tid]?.games || [];
     if (gid && teamGames.some((g) => g.id === gid)) {
       activeGameIdByTeam[tid] = gid;
     }
@@ -342,17 +402,75 @@ function normalizeWithMeta(raw: Partial<BasketballState> | null | undefined): {
   return {
     strippedDemo,
     state: {
-      teams: raw.teams,
+      teams,
       activeTeamId:
-        typeof raw.activeTeamId === 'string' && raw.teams.some((t) => t.id === raw.activeTeamId)
+        typeof raw.activeTeamId === 'string' && teams.some((t) => t.id === raw.activeTeamId)
           ? raw.activeTeamId
-          : raw.teams[0].id,
+          : teams[0].id,
       activeGameIdByTeam,
-      teamData,
-      staff,
+      teamData: updatedTeamData,
+      staff: updatedStaff,
       darkMode: typeof raw.darkMode === 'boolean' ? raw.darkMode : DEFAULT_BASKETBALL_STATE.darkMode,
       ...(typeof raw.updatedAt === 'number' ? { updatedAt: raw.updatedAt } : {}),
     },
+  };
+}
+
+/** Switch to a target season (e.g. '2025-26' or '2026-27'), keeping each year's roster & games separate. */
+export function switchBasketballSeason(
+  state: BasketballState,
+  targetSeason: string
+): BasketballState {
+  const season = normalizeSeasonLabel(targetSeason);
+  const current =
+    state.teams.find((t) => t.id === state.activeTeamId) || state.teams[0];
+  if (!current) return state;
+
+  const currentNameLower = current.name.toLowerCase().trim();
+  const sameTeamOtherSeason = state.teams.find(
+    (t) =>
+      normalizeSeasonLabel(t.season) === season &&
+      t.name.toLowerCase().trim() === currentNameLower
+  );
+  if (sameTeamOtherSeason) {
+    return { ...state, activeTeamId: sameTeamOtherSeason.id };
+  }
+
+  const anyInSeason = state.teams.find(
+    (t) => normalizeSeasonLabel(t.season) === season
+  );
+  if (anyInSeason) {
+    return { ...state, activeTeamId: anyInSeason.id };
+  }
+
+  const suffix = season.replace(/[^a-z0-9]/gi, '');
+  let newId = `${current.id}-${suffix}`;
+  if (state.teams.some((t) => t.id === newId)) {
+    newId = `${newId}-${Date.now()}`;
+  }
+  const newTeam: BasketballTeam = {
+    id: newId,
+    name: current.name,
+    season,
+    accentColor: current.accentColor,
+  };
+  return {
+    ...state,
+    teams: [...state.teams, newTeam],
+    activeTeamId: newTeam.id,
+    teamData: {
+      ...state.teamData,
+      [newTeam.id]: {
+        roster: [],
+        games: [],
+        customSets: DEFAULT_BASKETBALL_SETS,
+      },
+    },
+    staff: state.staff.map((m) =>
+      m.role === 'Admin' && !m.teamIds.includes(newTeam.id)
+        ? { ...m, teamIds: [...m.teamIds, newTeam.id] }
+        : m
+    ),
   };
 }
 
@@ -927,12 +1045,29 @@ export function parseTeamSnapMembersResponse(json: any): Omit<BasketballPlayer, 
   return out;
 }
 
+/** Return true when a parsed TeamSnap event represents a game, scrimmage, or tournament (not a practice/meeting). */
+export function isBasketballGameEvent(ev: ParsedTeamSnapEvent): boolean {
+  const text = `${ev.title || ''} ${ev.focusOrNotes || ''}`.toLowerCase();
+  if (
+    /\b(practice|shootaround|open\s*gym|workout|training|clinic|tryout|try-out|meeting|banquet|photo\s*day|walkthrough|walk-through)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  return ev.type === 'game' || ev.type === 'tournament' || ev.type === 'scrimmage';
+}
+
 /** Convert parsed TeamSnap iCal/CSV events into Court Studio schedule games. */
 export function convertTeamSnapEventsToBasketballGames(
   events: ParsedTeamSnapEvent[],
   existingGames: BasketballGame[],
-  mode: 'replace' | 'append'
+  mode: 'replace' | 'append',
+  options?: { gamesOnly?: boolean }
 ): BasketballGame[] {
+  const gamesOnly = options?.gamesOnly ?? true;
+  const sourceEvents = gamesOnly ? events.filter(isBasketballGameEvent) : events;
+
   const existingKeys = new Set(
     (mode === 'append' ? existingGames : []).map(
       (g) => `${g.date}|${g.time}|${g.opponent.toLowerCase().trim()}`
@@ -946,8 +1081,8 @@ export function convertTeamSnapEventsToBasketballGames(
   const additions: BasketballGame[] = [];
   const stamp = Date.now();
 
-  for (let i = 0; i < events.length; i++) {
-    const ev = events[i];
+  for (let i = 0; i < sourceEvents.length; i++) {
+    const ev = sourceEvents[i];
     const titleLower = `${ev.title || ''} ${ev.focusOrNotes || ''}`.toLowerCase();
     const eventType: BasketballGame['eventType'] =
       ev.type === 'game'

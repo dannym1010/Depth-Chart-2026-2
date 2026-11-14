@@ -22,6 +22,7 @@ import {
   parseTeamSnapText,
   type ParsedTeamSnapEvent,
 } from '../../utils/teamSnapSync';
+import { isBasketballGameEvent } from '../storage';
 import type { BasketballGame } from '../types';
 
 interface BasketballScheduleViewProps {
@@ -40,7 +41,8 @@ interface BasketballScheduleViewProps {
   onImportSchedule?: (
     events: ParsedTeamSnapEvent[],
     mode: 'replace' | 'append',
-    calendarUrl?: string
+    calendarUrl?: string,
+    gamesOnly?: boolean
   ) => void;
   onClearSchedule?: () => void;
 }
@@ -137,7 +139,14 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
   const [syncError, setSyncError] = useState('');
   const [parsedEvents, setParsedEvents] = useState<ParsedTeamSnapEvent[]>([]);
   const [syncMode, setSyncMode] = useState<'replace' | 'append'>('replace');
+  const [gamesOnly, setGamesOnly] = useState(true);
   const scheduleFileRef = useRef<HTMLInputElement>(null);
+
+  const filteredParsedEvents = useMemo(
+    () => (gamesOnly ? parsedEvents.filter(isBasketballGameEvent) : parsedEvents),
+    [parsedEvents, gamesOnly]
+  );
+  const skippedNonGamesCount = parsedEvents.length - filteredParsedEvents.length;
 
   const [form, setForm] = useState({
     weekLabel: '',
@@ -253,6 +262,7 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
     setFeedUrl(calendarUrl || '');
     setSyncError('');
     setParsedEvents([]);
+    setGamesOnly(true);
     setSyncMode(games.length === 0 ? 'replace' : 'append');
     setShowSyncModal(true);
   };
@@ -755,10 +765,10 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
               <div>
                 <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-50 flex items-center gap-2">
                   <RefreshCw className="w-4 h-4 text-amber-500" />
-                  <span>Sync TeamSnap Schedule — {teamName}</span>
+                  <span>Sync TeamSnap Schedule — {teamName} ({season})</span>
                 </h2>
                 <p className="text-[11px] text-zinc-500 mt-0.5">
-                  In TeamSnap go to <b>Schedule → Subscribe / Export → Subscribe to iCal</b> and copy the feed link, or upload an .ics / .csv file.
+                  In TeamSnap go to <b>Schedule → Subscribe / Export → Subscribe to iCal</b> and copy the feed link, or upload an .ics / .csv file. Each season saves its own TeamSnap link.
                 </p>
               </div>
               <button
@@ -768,6 +778,36 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
               >
                 <X className="w-4 h-4" />
               </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 text-xs">
+              <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                What to sync from TeamSnap
+              </span>
+              <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setGamesOnly(true)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${
+                    gamesOnly
+                      ? 'bg-amber-500 text-zinc-950'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  Games Only (skip practices &amp; meetings)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGamesOnly(false)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${
+                    !gamesOnly
+                      ? 'bg-amber-500 text-zinc-950'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  All Events
+                </button>
+              </div>
             </div>
 
             <div className="flex gap-1.5 border-b border-zinc-200 dark:border-zinc-800 pb-2">
@@ -869,7 +909,12 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
               <div className="flex-1 min-h-0 flex flex-col gap-2">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                   <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                    Found {parsedEvents.length} TeamSnap events
+                    Found {filteredParsedEvents.length} {gamesOnly ? 'games' : 'events'}
+                    {gamesOnly && skippedNonGamesCount > 0 && (
+                      <span className="text-zinc-500 font-normal">
+                        {' '}({skippedNonGamesCount} practices/non-games skipped)
+                      </span>
+                    )}
                   </span>
                   <div className="flex items-center gap-1.5">
                     <span className="text-zinc-500 text-[11px]">Import mode:</span>
@@ -889,23 +934,29 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
                     ))}
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto max-h-56 rounded-lg border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 text-xs">
-                  {parsedEvents.map((ev, idx) => (
-                    <div key={idx} className="px-3 py-2 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">
-                          {ev.opponent || ev.title}
+                {filteredParsedEvents.length === 0 ? (
+                  <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 px-3 py-4 text-center text-xs text-zinc-500">
+                    Only practices or non-game events were found. Switch to <b>All Events</b> above if you want to import them.
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto max-h-56 rounded-lg border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 text-xs">
+                    {filteredParsedEvents.map((ev, idx) => (
+                      <div key={idx} className="px-3 py-2 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                            {ev.opponent || ev.title}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 truncate">
+                            {ev.date} · {ev.startTime || 'TBD'} · {ev.location || 'TBD Gym'}
+                          </div>
                         </div>
-                        <div className="text-[11px] text-zinc-500 truncate">
-                          {ev.date} · {ev.startTime || 'TBD'} · {ev.location || 'TBD Gym'}
-                        </div>
+                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 shrink-0">
+                          {ev.type}
+                        </span>
                       </div>
-                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 shrink-0">
-                        {ev.type}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -919,14 +970,14 @@ export const BasketballScheduleView: React.FC<BasketballScheduleViewProps> = ({
               </button>
               <button
                 type="button"
-                disabled={parsedEvents.length === 0}
+                disabled={filteredParsedEvents.length === 0}
                 onClick={() => {
-                  onImportSchedule(parsedEvents, syncMode, feedUrl.trim() || undefined);
+                  onImportSchedule(filteredParsedEvents, syncMode, feedUrl.trim() || undefined, gamesOnly);
                   setShowSyncModal(false);
                 }}
                 className="h-9 px-4 rounded-lg bg-amber-500 text-zinc-950 text-xs font-bold disabled:opacity-40 cursor-pointer"
               >
-                Import {parsedEvents.length || ''} Events
+                Import {filteredParsedEvents.length || ''} {gamesOnly ? 'Games' : 'Events'}
               </button>
             </div>
           </div>

@@ -22,13 +22,16 @@ import { BasketballScheduleView } from './components/BasketballScheduleView';
 import { BasketballScoutView } from './components/BasketballScoutView';
 import { BasketballUsersView } from './components/BasketballUsersView';
 import {
+  BASKETBALL_SEASONS,
   DEFAULT_BASKETBALL_SETS,
   canAccessBasketballWorkspace,
   convertTeamSnapEventsToBasketballGames,
   fetchBasketballStateCloud,
   loadBasketballState,
+  normalizeSeasonLabel,
   saveBasketballState,
   subscribeBasketballStateCloud,
+  switchBasketballSeason,
   syncBasketballAccessDoc,
 } from './storage';
 import type {
@@ -203,6 +206,18 @@ export const BasketballApp: React.FC = () => {
     () => visibleTeams.find((t) => t.id === state.activeTeamId) || visibleTeams[0],
     [visibleTeams, state.activeTeamId]
   );
+
+  const activeSeason = useMemo(
+    () => normalizeSeasonLabel(activeTeam.season),
+    [activeTeam.season]
+  );
+
+  const seasonTeams = useMemo(() => {
+    const matching = visibleTeams.filter(
+      (t) => normalizeSeasonLabel(t.season) === activeSeason
+    );
+    return matching.length > 0 ? matching : visibleTeams;
+  }, [visibleTeams, activeSeason]);
 
   const teamData: BasketballTeamData = useMemo(
     () => state.teamData[activeTeam.id] || EMPTY_TEAM_DATA,
@@ -497,14 +512,27 @@ export const BasketballApp: React.FC = () => {
     updateTeamData((td) => ({ ...td, roster: [] }));
   };
 
+  const handleSwitchSeason = useCallback(
+    (season: string) => {
+      commit((prev) => switchBasketballSeason(prev, season));
+    },
+    [commit]
+  );
+
   const handleImportSchedule = (
     events: ParsedTeamSnapEvent[],
     mode: 'replace' | 'append',
-    calendarUrl?: string
+    calendarUrl?: string,
+    gamesOnly: boolean = true
   ) => {
     commit((prev) => {
       const current = prev.teamData[activeTeam.id] || EMPTY_TEAM_DATA;
-      const nextGames = convertTeamSnapEventsToBasketballGames(events, current.games, mode);
+      const nextGames = convertTeamSnapEventsToBasketballGames(
+        events,
+        current.games,
+        mode,
+        { gamesOnly }
+      );
       const nextTeams = calendarUrl
         ? prev.teams.map((t) => (t.id === activeTeam.id ? { ...t, calendarUrl } : t))
         : prev.teams;
@@ -774,16 +802,41 @@ export const BasketballApp: React.FC = () => {
 
           <div className="h-5 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block" />
 
+          {/* Season Switcher (2025-26 / 2026-27) */}
+          <div
+            role="group"
+            aria-label="Basketball season"
+            className="inline-flex items-center rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-0.5 shrink-0"
+          >
+            {BASKETBALL_SEASONS.map((s) => {
+              const selected = activeSeason === s;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => handleSwitchSeason(s)}
+                  className={`px-2 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
+                    selected
+                      ? 'bg-amber-500 text-zinc-950'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
+                  }`}
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Team Dropdown */}
           <select
             value={activeTeam.id}
             onChange={(e) => commit((prev) => ({ ...prev, activeTeamId: e.target.value }))}
             aria-label="Active basketball team"
-            className="h-8 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-100 max-w-[165px] sm:max-w-[220px] truncate"
+            className="h-8 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-100 max-w-[155px] sm:max-w-[230px] truncate"
           >
-            {visibleTeams.map((t) => (
+            {seasonTeams.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name}
+                {t.name} ({t.season})
               </option>
             ))}
           </select>
@@ -912,6 +965,7 @@ export const BasketballApp: React.FC = () => {
           <div className="max-w-7xl mx-auto">
             {activeTab === 'schedule' && (
               <BasketballScheduleView
+                key={activeTeam.id}
                 teamName={activeTeam.name}
                 season={activeTeam.season}
                 calendarUrl={activeTeam.calendarUrl}
@@ -990,6 +1044,7 @@ export const BasketballApp: React.FC = () => {
                 staff={state.staff}
                 readOnly={readOnly}
                 onSelectTeam={(teamId) => commit((prev) => ({ ...prev, activeTeamId: teamId }))}
+                onSwitchSeason={handleSwitchSeason}
                 onAddTeam={handleAddTeam}
                 onUpdateTeam={handleUpdateTeam}
                 onAddPlayer={handleAddPlayer}

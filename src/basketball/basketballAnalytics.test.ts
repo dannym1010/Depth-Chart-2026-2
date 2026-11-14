@@ -12,11 +12,13 @@ import {
   bballAccessFromStaff,
   canAccessBasketballWorkspace,
   convertTeamSnapEventsToBasketballGames,
+  isBasketballGameEvent,
   parseBasketballHudlCsv,
   parseBasketballRosterInput,
   possessionsToFootballPlays,
   shouldRouteToBasketballOnLogin,
   stripLegacyDemoData,
+  switchBasketballSeason,
 } from './storage.ts';
 import { normalizeWeek, weekKeyFromFolder } from '../filmroom/folderRoutes.ts';
 import { detectSportFromUrl } from '../sportMode.ts';
@@ -331,7 +333,7 @@ test('parseBasketballRosterInput parses TeamSnap CSV exports and skips coaches/p
   assert.equal(res.players[2].position, 'SF');
 });
 
-test('convertTeamSnapEventsToBasketballGames converts events and deduplicates in append mode', () => {
+test('convertTeamSnapEventsToBasketballGames defaults to gamesOnly and deduplicates in append mode', () => {
   const events: ParsedTeamSnapEvent[] = [
     {
       type: 'game',
@@ -352,17 +354,33 @@ test('convertTeamSnapEventsToBasketballGames converts events and deduplicates in
       locationType: 'home',
       week: '2',
     },
+    {
+      type: 'game',
+      title: 'Practice at Austin Road Gym',
+      date: '2026-12-09',
+      startTime: '18:30',
+      location: 'Austin Road Gym',
+      locationType: 'away',
+      week: '2',
+    },
   ];
 
-  const replaced = convertTeamSnapEventsToBasketballGames(events, [], 'replace');
-  assert.equal(replaced.length, 2);
-  assert.equal(replaced[0].weekLabel, 'Game 1');
-  assert.equal(replaced[0].eventType, 'Game');
-  assert.equal(replaced[0].opponent, 'Carmel Rams');
-  assert.equal(replaced[1].eventType, 'Practice');
+  assert.equal(isBasketballGameEvent(events[0]), true);
+  assert.equal(isBasketballGameEvent(events[1]), false);
+  assert.equal(isBasketballGameEvent(events[2]), false);
 
-  const appended = convertTeamSnapEventsToBasketballGames(events, replaced, 'append');
-  assert.equal(appended.length, 2);
+  const gamesOnly = convertTeamSnapEventsToBasketballGames(events, [], 'replace');
+  assert.equal(gamesOnly.length, 1);
+  assert.equal(gamesOnly[0].weekLabel, 'Game 1');
+  assert.equal(gamesOnly[0].eventType, 'Game');
+  assert.equal(gamesOnly[0].opponent, 'Carmel Rams');
+
+  const allEvents = convertTeamSnapEventsToBasketballGames(events, [], 'replace', { gamesOnly: false });
+  assert.equal(allEvents.length, 3);
+  assert.equal(allEvents[1].eventType, 'Practice');
+
+  const appended = convertTeamSnapEventsToBasketballGames(events, allEvents, 'append', { gamesOnly: false });
+  assert.equal(appended.length, 3);
 });
 
 test('canAccessBasketballWorkspace blocks unauthenticated and unapproved visitors before showing any workspace', () => {
@@ -415,4 +433,42 @@ test('canAccessBasketballWorkspace blocks unauthenticated and unapproved visitor
     status: 'approved',
     role: 'Family',
   });
+});
+
+test('switchBasketballSeason separates 2025-26 and 2026-27 rosters, games, and TeamSnap sync URLs', () => {
+  const baseState = {
+    ...DEFAULT_BASKETBALL_STATE,
+    teams: DEFAULT_BASKETBALL_STATE.teams.map((t) =>
+      t.id === 'bball-10u-boys'
+        ? { ...t, calendarUrl: 'https://ical-cdn.teamsnap.com/team_schedule/2026-27.ics' }
+        : t.id === 'bball-10u-boys-25-26'
+        ? { ...t, calendarUrl: 'https://ical-cdn.teamsnap.com/team_schedule/2025-26.ics' }
+        : t
+    ),
+    teamData: {
+      ...DEFAULT_BASKETBALL_STATE.teamData,
+      'bball-10u-boys': {
+        roster: [{ id: 'p-26', num: '23', firstName: 'Carter', lastName: 'Hayes', position: 'SG' as const }],
+        games: [],
+        customSets: DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].customSets,
+      },
+      'bball-10u-boys-25-26': {
+        roster: [{ id: 'p-25', num: '10', firstName: 'Dylan', lastName: 'Morales', position: 'PG' as const }],
+        games: [],
+        customSets: DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys-25-26'].customSets,
+      },
+    },
+  };
+
+  const switchedTo2526 = switchBasketballSeason(baseState, '2025-26');
+  assert.equal(switchedTo2526.activeTeamId, 'bball-10u-boys-25-26');
+  const team2526 = switchedTo2526.teams.find((t) => t.id === switchedTo2526.activeTeamId);
+  assert.equal(team2526?.calendarUrl, 'https://ical-cdn.teamsnap.com/team_schedule/2025-26.ics');
+  assert.equal(switchedTo2526.teamData[switchedTo2526.activeTeamId].roster[0].firstName, 'Dylan');
+
+  const switchedBack2627 = switchBasketballSeason(switchedTo2526, '2026-27');
+  assert.equal(switchedBack2627.activeTeamId, 'bball-10u-boys');
+  const team2627 = switchedBack2627.teams.find((t) => t.id === switchedBack2627.activeTeamId);
+  assert.equal(team2627?.calendarUrl, 'https://ical-cdn.teamsnap.com/team_schedule/2026-27.ics');
+  assert.equal(switchedBack2627.teamData[switchedBack2627.activeTeamId].roster[0].firstName, 'Carter');
 });
