@@ -6,7 +6,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { VideoScreen } from './filmroom/VideoScreen';
 import { SCREEN_HASH } from './filmroom/screenLink';
 import { finishDriveSignInPage } from './filmroom/filmSources';
-import { getActiveSport, subscribeActiveSport, type ActiveSport } from './sportMode';
+import { getActiveSport, subscribeActiveSport, syncDocumentTitle, type ActiveSport } from './sportMode';
 import './index.css';
 
 // Back from Google's sign-in page (the app on an iPad's Home Screen): the sign-in kept, the app's address put back.
@@ -18,6 +18,9 @@ const videoScreen = typeof window !== 'undefined' && window.location.hash === SC
 const RootApp = () => {
   const [sport, setSport] = useState<ActiveSport>(() => getActiveSport());
   useEffect(() => subscribeActiveSport(setSport), []);
+  useEffect(() => {
+    syncDocumentTitle(sport);
+  }, [sport]);
   return sport === 'basketball' ? <BasketballApp /> : <App />;
 };
 

@@ -14,6 +14,7 @@ import {
   shouldRouteToBasketballOnLogin,
 } from './storage.ts';
 import { normalizeWeek, weekKeyFromFolder } from '../filmroom/folderRoutes.ts';
+import { detectSportFromUrl } from '../sportMode.ts';
 import type { BasketballGame, BasketballStaffMember } from './types.ts';
 
 const game1: BasketballGame = DEFAULT_BASKETBALL_STATE.teamData['bball-10u-boys'].games[0];
@@ -238,4 +239,13 @@ test('shouldRouteToBasketballOnLogin respects owner, basketball-only coaches, an
 test('folderRoutes handles Basketball Game folder naming cleanly alongside Football Week folders', () => {
   assert.equal(weekKeyFromFolder('Game 1 - Yorktown'), '1');
   assert.equal(normalizeWeek('Game 1'), '1');
+});
+
+test('detectSportFromUrl routes dedicated domains, paths, and query overrides cleanly', () => {
+  assert.equal(detectSportFromUrl('https://court-studio.vercel.app/'), 'basketball');
+  assert.equal(detectSportFromUrl('https://mahopac-hoops.vercel.app/'), 'basketball');
+  assert.equal(detectSportFromUrl('https://field-general.vercel.app/'), 'football');
+  assert.equal(detectSportFromUrl('https://field-general.vercel.app/basketball'), 'basketball');
+  assert.equal(detectSportFromUrl('https://court-studio.vercel.app/?app=football'), 'football');
+  assert.equal(detectSportFromUrl('https://mahopac.vercel.app/', 'basketball'), 'basketball');
 });

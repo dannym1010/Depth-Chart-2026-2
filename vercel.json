@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    { "source": "/basketball", "destination": "/index.html" },
+    { "source": "/basketball/:path*", "destination": "/index.html" },
+    { "source": "/hoops", "destination": "/index.html" },
+    { "source": "/hoops/:path*", "destination": "/index.html" },
+    { "source": "/court", "destination": "/index.html" },
+    { "source": "/court/:path*", "destination": "/index.html" },
+    { "source": "/court-studio", "destination": "/index.html" },
+    { "source": "/football", "destination": "/index.html" },
+    { "source": "/field-general", "destination": "/index.html" }
+  ]
+}
