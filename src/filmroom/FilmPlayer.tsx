@@ -29,6 +29,8 @@ export interface PlayerApi {
   /** The speed picked on the player (its 1× / ½× buttons), and setting it from outside. */
   speed?: () => number;
   setSpeed?: (s: number) => void;
+  toggleFullscreen?: () => void;
+  isFullscreen?: () => boolean;
 }
 
 export const fmtTime = (t: number) => {
@@ -59,6 +61,19 @@ interface FilmPlayerProps {
   startAt?: number;
   /** Optional callback fired when video metadata loads with the clip duration in seconds. */
   onDuration?: (durationSec: number) => void;
+  /** Optional timeline event pins (e.g. tagged possessions/stats) rendered on the scrubber bar. */
+  timelinePins?: {
+    id: string;
+    timeSec: number;
+    label: string;
+    color?: string;
+    active?: boolean;
+    onSelect: () => void;
+  }[];
+  /** Optional overlay rendered inside the fullscreen container so coaches can tag plays/stats in full screen. */
+  fullscreenOverlay?: React.ReactNode;
+  /** Optional callback when fullscreen state changes. */
+  onFullscreenChange?: (isFullscreen: boolean) => void;
   /** Keyboard shortcuts (space, arrows, D, S...). Off while a coach is working elsewhere on the page. */
   shortcuts?: boolean;
   /** Start with "Auto" (next play when a clip ends) on or off; off while breaking a game down. */
@@ -92,6 +107,9 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   viewOnly = false,
   startAt = 0,
   onDuration,
+  timelinePins,
+  fullscreenOverlay,
+  onFullscreenChange,
   shortcuts = true,
   autoNextDefault = true,
   playLines,
@@ -122,6 +140,11 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   const [browserFull, setBrowserFull] = useState(false);
   const [ownFull, setOwnFull] = useState(false);
   const isFullscreen = browserFull || ownFull;
+  const onFullscreenChangeRef = useRef(onFullscreenChange);
+  onFullscreenChangeRef.current = onFullscreenChange;
+  useEffect(() => {
+    onFullscreenChangeRef.current?.(isFullscreen);
+  }, [isFullscreen]);
   const [muted, setMuted] = useState(() => {
     try {
       return localStorage.getItem('footballFilmroomMuted') === '1';
@@ -401,6 +424,12 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     v.currentTime = Math.min(v.duration || Infinity, Math.max(0, v.currentTime + dir * FRAME));
   }, []);
 
+  const skipSeconds = useCallback((deltaSec: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = Math.max(0, Math.min(v.duration || Infinity, v.currentTime + deltaSec));
+  }, []);
+
   const stopwatch = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -621,6 +650,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
       setOwnFull(true);
     }
   }, []);
+  apiRef.current.toggleFullscreen = fullscreen;
+  apiRef.current.isFullscreen = () => isFullscreen;
 
   view.current = { zoom, pan };
   // Zoom to a level, keeping the spot under the pointer (sx, sy: -0.5..0.5 of the frame from its
@@ -664,6 +695,8 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         ' ': togglePlay,
         arrowleft: () => step(-1),
         arrowright: () => step(1),
+        '[': () => skipSeconds(-5),
+        ']': () => skipSeconds(5),
         arrowup: () => hasPrev && onPrev(),
         arrowdown: () => hasNext && onNext(),
         l: () => setLoop((x) => !x),
@@ -680,7 +713,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [shortcuts, togglePlay, step, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen, toggleMute, toggleFastCut, viewOnly, recording, stopRecording, startRecording, stage]);
+  }, [shortcuts, togglePlay, step, skipSeconds, hasPrev, hasNext, onPrev, onNext, toggleDraw, stopwatch, fullscreen, toggleMute, toggleFastCut, viewOnly, recording, stopRecording, startRecording, stage]);
 
   const onEnded = () => {
     triggeredFreezesRef.current.clear();
@@ -972,6 +1005,26 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
             className="absolute -top-2.5 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border border-slate-950 shadow cursor-pointer hover:scale-125 transition-transform z-10"
           />
         ))}
+      {/* Tagged game event pins (possessions, shots, turnovers, etc.) on the scrubber */}
+      {duration > 0 &&
+        timelinePins?.map((pin) => (
+          <button
+            key={pin.id}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              pin.onSelect();
+            }}
+            style={{
+              left: `${Math.min(98, Math.max(2, (pin.timeSec / duration) * 100))}%`,
+              background: pin.color || '#f59e0b',
+            }}
+            title={pin.label}
+            className={`absolute -bottom-2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border border-slate-950 shadow cursor-pointer hover:scale-125 transition-transform z-10 ${
+              pin.active ? 'ring-2 ring-white scale-125' : ''
+            }`}
+          />
+        ))}
       <input
         type="range"
         min={0}
@@ -989,6 +1042,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
   // In the bottom right corner of either bar: the frame steps around play / pause, then the speed.
   const transport = (speeds: number[]) => (
     <>
+      <button className={`${idle} px-1.5 text-[11px] font-bold`} onClick={() => skipSeconds(-5)} disabled={!src} title="Rewind 5 seconds ([)" aria-label="Rewind 5 seconds">-5s</button>
       <button className={idle} onClick={() => step(-1)} disabled={!src} title="Back one frame (←)" aria-label="Back one frame"><ChevronLeft size={18} /></button>
       <button
         className="inline-flex items-center justify-center h-11 w-11 rounded-full shadow-lg hover:opacity-85 disabled:opacity-40"
@@ -1001,6 +1055,7 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
         {playing ? <Pause size={20} /> : <Play size={20} className="translate-x-px" />}
       </button>
       <button className={idle} onClick={() => step(1)} disabled={!src} title="Forward one frame (→)" aria-label="Forward one frame"><ChevronRight size={18} /></button>
+      <button className={`${idle} px-1.5 text-[11px] font-bold`} onClick={() => skipSeconds(5)} disabled={!src} title="Forward 5 seconds (])" aria-label="Forward 5 seconds">+5s</button>
       <div role="group" aria-label="Speed" className="ml-1 inline-flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.1)' }}>
         {speeds.map((sp) => (
           <button
@@ -1349,6 +1404,18 @@ export const FilmPlayer: React.FC<FilmPlayerProps> = ({
           style={{ background: 'rgba(0,0,0,0.82)' }}
         >
           {tools}
+        </div>
+      )}
+
+      {isFullscreen && fullscreenOverlay && (
+        <div
+          data-fullscreen-hud
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          className="pointer-events-auto z-20"
+        >
+          {fullscreenOverlay}
         </div>
       )}
 

@@ -17,6 +17,7 @@ import {
   formatVideoTimestamp,
   inferSeasonYearForMonth,
   isBasketballGameEvent,
+  nextPossessionSideAfterEvent,
   parseBasketballHudlCsv,
   parseBasketballRosterInput,
   parseBasketballScheduleInput,
@@ -802,4 +803,26 @@ test('computePlayerBoxStats tallies live-tagged scoring, standalone rebounds, as
   assert.equal(chloe.reb, 1);
   assert.equal(chloe.stl, 1);
   assert.equal(chloe.to, 1);
+});
+
+test('nextPossessionSideAfterEvent handles auto-flip rules accurately', () => {
+  // Disabled leaves side unchanged
+  assert.equal(nextPossessionSideAfterEvent('us', '2pt_make', undefined, false), 'us');
+  assert.equal(nextPossessionSideAfterEvent('opponent', 'turnover', undefined, false), 'opponent');
+
+  // Possession-ending events flip side when enabled
+  assert.equal(nextPossessionSideAfterEvent('us', '2pt_make', undefined, true), 'opponent');
+  assert.equal(nextPossessionSideAfterEvent('us', '3pt_make', undefined, true), 'opponent');
+  assert.equal(nextPossessionSideAfterEvent('us', 'and_1', undefined, true), 'opponent');
+  assert.equal(nextPossessionSideAfterEvent('opponent', 'turnover', undefined, true), 'us');
+  assert.equal(nextPossessionSideAfterEvent('opponent', 'def_steal', undefined, true), 'us');
+  assert.equal(nextPossessionSideAfterEvent('opponent', 'def_stop', undefined, true), 'us');
+  assert.equal(nextPossessionSideAfterEvent('us', 'def_reb', 'def', true), 'opponent');
+
+  // Possession-retaining events keep the current side
+  assert.equal(nextPossessionSideAfterEvent('us', 'def_reb', 'off', true), 'us');
+  assert.equal(nextPossessionSideAfterEvent('us', '2pt_miss', undefined, true), 'us');
+  assert.equal(nextPossessionSideAfterEvent('opponent', '3pt_miss', undefined, true), 'opponent');
+  assert.equal(nextPossessionSideAfterEvent('us', 'foul_drawn', undefined, true), 'us');
+  assert.equal(nextPossessionSideAfterEvent('opponent', 'def_block', undefined, true), 'opponent');
 });

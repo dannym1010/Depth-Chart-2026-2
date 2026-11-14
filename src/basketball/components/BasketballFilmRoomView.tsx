@@ -1,16 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeftRight,
   CheckSquare,
   Clock,
   Film,
+  Keyboard,
   Link2,
   MapPin,
+  Maximize2,
   MessageSquare,
+  Minimize2,
+  PanelBottom,
+  PanelRight,
   Plus,
   RefreshCw,
   SlidersHorizontal,
+  Sparkles,
   Star,
   Trash2,
+  Undo2,
   Unlink,
 } from 'lucide-react';
 import { naturalCompare } from '../../filmroom/clipMatching';
@@ -37,6 +45,7 @@ import {
   createTimestampedPossession,
   DEFAULT_BASKETBALL_SETS,
   formatVideoTimestamp,
+  nextPossessionSideAfterEvent,
   possessionsToFootballPlays,
   resolvePossessionVideoTarget,
 } from '../storage';
@@ -90,25 +99,37 @@ const OUTCOME_BUTTONS: {
 const LIVE_STAT_ACTIONS: {
   key: string;
   label: string;
+  hotkey: string;
   result: PossessionResult;
   points: 0 | 1 | 2 | 3 | 4;
   reboundType?: 'off' | 'def';
   tone: 'make' | 'miss' | 'def' | 'neutral';
 }[] = [
-  { key: '2pt_make', label: '+2 Make', result: '2pt_make', points: 2, tone: 'make' },
-  { key: '3pt_make', label: '+3 Make', result: '3pt_make', points: 3, tone: 'make' },
-  { key: 'and_1', label: 'And-1 (+3)', result: 'and_1', points: 3, tone: 'make' },
-  { key: 'ft_1', label: 'FT +1', result: 'ft_trip', points: 1, tone: 'neutral' },
-  { key: 'ft_2', label: 'FT +2', result: 'ft_trip', points: 2, tone: 'neutral' },
-  { key: '2pt_miss', label: '2PT Miss', result: '2pt_miss', points: 0, tone: 'miss' },
-  { key: '3pt_miss', label: '3PT Miss', result: '3pt_miss', points: 0, tone: 'miss' },
-  { key: 'off_reb', label: 'Off Reb', result: 'def_reb', points: 0, reboundType: 'off', tone: 'neutral' },
-  { key: 'def_reb', label: 'Def Reb', result: 'def_reb', points: 0, reboundType: 'def', tone: 'def' },
-  { key: 'def_steal', label: 'Steal', result: 'def_steal', points: 0, tone: 'def' },
-  { key: 'def_block', label: 'Block', result: 'def_block', points: 0, tone: 'def' },
-  { key: 'turnover', label: 'Turnover', result: 'turnover', points: 0, tone: 'miss' },
-  { key: 'def_stop', label: 'Def Stop', result: 'def_stop', points: 0, tone: 'def' },
-  { key: 'foul_drawn', label: 'Foul', result: 'foul_drawn', points: 0, tone: 'neutral' },
+  { key: '2pt_make', label: '+2 Make', hotkey: '2', result: '2pt_make', points: 2, tone: 'make' },
+  { key: '3pt_make', label: '+3 Make', hotkey: '3', result: '3pt_make', points: 3, tone: 'make' },
+  { key: 'and_1', label: 'And-1 (+3)', hotkey: '4', result: 'and_1', points: 3, tone: 'make' },
+  { key: 'ft_1', label: 'FT +1', hotkey: '1', result: 'ft_trip', points: 1, tone: 'neutral' },
+  { key: 'ft_2', label: 'FT +2', hotkey: '5', result: 'ft_trip', points: 2, tone: 'neutral' },
+  { key: '2pt_miss', label: '2PT Miss', hotkey: 'X', result: '2pt_miss', points: 0, tone: 'miss' },
+  { key: '3pt_miss', label: '3PT Miss', hotkey: 'Z', result: '3pt_miss', points: 0, tone: 'miss' },
+  { key: 'off_reb', label: 'Off Reb', hotkey: 'O', result: 'def_reb', points: 0, reboundType: 'off', tone: 'neutral' },
+  { key: 'def_reb', label: 'Def Reb', hotkey: 'B', result: 'def_reb', points: 0, reboundType: 'def', tone: 'def' },
+  { key: 'def_steal', label: 'Steal', hotkey: 'G', result: 'def_steal', points: 0, tone: 'def' },
+  { key: 'def_block', label: 'Block', hotkey: 'K', result: 'def_block', points: 0, tone: 'def' },
+  { key: 'turnover', label: 'Turnover', hotkey: 'T', result: 'turnover', points: 0, tone: 'miss' },
+  { key: 'def_stop', label: 'Def Stop', hotkey: 'V', result: 'def_stop', points: 0, tone: 'def' },
+  { key: 'foul_drawn', label: 'Foul', hotkey: 'U', result: 'foul_drawn', points: 0, tone: 'neutral' },
+];
+
+const QUICK_SHOT_ZONES: { zone: ShotZone; short: string }[] = [
+  { zone: 'rim', short: 'Rim' },
+  { zone: 'paint', short: 'Paint' },
+  { zone: 'mid_center', short: 'Mid' },
+  { zone: 'corner_3_left', short: 'L Corner 3' },
+  { zone: 'wing_3_left', short: 'L Wing 3' },
+  { zone: 'top_3', short: 'Top 3' },
+  { zone: 'wing_3_right', short: 'R Wing 3' },
+  { zone: 'corner_3_right', short: 'R Corner 3' },
 ];
 
 const formatPlayerOption = (p: BasketballPlayer) => `#${p.num} ${p.firstName} ${p.lastName}`.trim();
@@ -209,6 +230,12 @@ export const BasketballFilmRoomView: React.FC<BasketballFilmRoomViewProps> = ({
   const [liveSetCall, setLiveSetCall] = useState<string>('');
   const [livePhase, setLivePhase] = useState<PossessionPhase>('half_court');
   const [liveDefense, setLiveDefense] = useState<DefenseType>('man');
+  const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
+  const [fsHudExpanded, setFsHudExpanded] = useState(true);
+  const [fsHudDock, setFsHudDock] = useState<'bottom' | 'right'>('bottom');
+  const [hotkeysEnabled, setHotkeysEnabled] = useState(true);
+  const [autoFlipSide, setAutoFlipSide] = useState(false);
+  const [quickSetDraft, setQuickSetDraft] = useState('');
 
   const apiRef = useRef<PlayerApi | null>(null);
 
@@ -493,7 +520,88 @@ export const BasketballFilmRoomView: React.FC<BasketballFilmRoomViewProps> = ({
     });
     onUpdatePossessions(selectedGame.id, [...possessions, created]);
     setActivePlayId(created.id);
+    const nextSide = nextPossessionSideAfterEvent(liveSide, action.result, action.reboundType, autoFlipSide);
+    if (nextSide !== liveSide) {
+      setLiveSide(nextSide);
+    }
   };
+
+  const handleUndoLastPossession = () => {
+    if (!selectedGame || readOnly || possessions.length === 0) return;
+    const next = possessions.slice(0, -1);
+    onUpdatePossessions(selectedGame.id, next);
+    if (next.length > 0) {
+      setActivePlayId(next[next.length - 1].id);
+    } else {
+      setActivePlayId('');
+    }
+  };
+
+  const recentPossessions = useMemo(() => [...possessions].slice(-4).reverse(), [possessions]);
+
+  const hotkeyHandlersRef = useRef<{
+    onStat: (action: (typeof LIVE_STAT_ACTIONS)[number]) => void;
+    onFlipSide: () => void;
+    onToggleHud: () => void;
+    onUndo: () => void;
+    canUndo: boolean;
+    isFullscreen: boolean;
+  }>({
+    onStat: () => undefined,
+    onFlipSide: () => undefined,
+    onToggleHud: () => undefined,
+    onUndo: () => undefined,
+    canUndo: false,
+    isFullscreen: false,
+  });
+  hotkeyHandlersRef.current = {
+    onStat: handleLiveStatTag,
+    onFlipSide: () => setLiveSide((s) => (s === 'us' ? 'opponent' : 'us')),
+    onToggleHud: () => setFsHudExpanded((v) => !v),
+    onUndo: handleUndoLastPossession,
+    canUndo: possessions.length > 0,
+    isFullscreen: isPlayerFullscreen,
+  };
+
+  useEffect(() => {
+    if (readOnly || !hotkeysEnabled) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 'q') {
+        e.preventDefault();
+        hotkeyHandlersRef.current.onFlipSide();
+        return;
+      }
+      if (key === 'h' && hotkeyHandlersRef.current.isFullscreen) {
+        e.preventDefault();
+        hotkeyHandlersRef.current.onToggleHud();
+        return;
+      }
+      if (key === 'backspace' && hotkeyHandlersRef.current.canUndo) {
+        e.preventDefault();
+        hotkeyHandlersRef.current.onUndo();
+        return;
+      }
+      const matched = LIVE_STAT_ACTIONS.find((a) => a.hotkey.toLowerCase() === key);
+      if (matched) {
+        e.preventDefault();
+        hotkeyHandlersRef.current.onStat(matched);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [readOnly, hotkeysEnabled]);
 
   const handleStampActivePlayTime = () => {
     if (!currentClip || !activePossession || readOnly) return;
@@ -730,6 +838,40 @@ export const BasketballFilmRoomView: React.FC<BasketballFilmRoomViewProps> = ({
     });
   }, [possessions, sideFilter, periodFilter]);
 
+  const timelinePins = useMemo(() => {
+    return currentSegmentPinnedEvents.map(({ possession, timeSec }) => {
+      const toneColor =
+        possession.result === '2pt_make' ||
+        possession.result === '3pt_make' ||
+        possession.result === 'and_1' ||
+        possession.result === 'ft_trip'
+          ? '#10b981'
+          : possession.result === '2pt_miss' || possession.result === '3pt_miss' || possession.result === 'turnover'
+          ? '#f43f5e'
+          : possession.result === 'def_steal' ||
+            possession.result === 'def_block' ||
+            possession.result === 'def_stop' ||
+            possession.result === 'def_reb'
+          ? '#0ea5e9'
+          : '#f59e0b';
+      const label = `#${possession.playNumber} ${possession.setCall} · ${possession.result
+        .replace(/_/g, ' ')
+        .toUpperCase()}${possession.points > 0 ? ` (+${possession.points})` : ''}${
+        possession.shooter ? ` · ${possession.shooter}` : ''
+      }${possession.rebounder ? ` · REB ${possession.rebounder}` : ''}${
+        possession.defender ? ` · DEF ${possession.defender}` : ''
+      }`;
+      return {
+        id: possession.id,
+        timeSec,
+        label,
+        color: toneColor,
+        active: activePlay?.id === possession.id,
+        onSelect: () => handleJumpToPossession(possession),
+      };
+    });
+  }, [currentSegmentPinnedEvents, activePlay?.id, handleJumpToPossession]);
+
   if (!selectedGame) {
     return (
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-8 text-center">
@@ -741,6 +883,617 @@ export const BasketballFilmRoomView: React.FC<BasketballFilmRoomViewProps> = ({
       </div>
     );
   }
+
+  const renderLiveTaggingControls = (inFullscreen: boolean) => {
+    const subSurface = inFullscreen
+      ? 'bg-zinc-900/90 border-white/15 text-zinc-100'
+      : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200';
+    const chipIdle = inFullscreen
+      ? 'bg-white/10 border-white/15 text-zinc-200 hover:border-amber-400/70'
+      : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-200 hover:border-amber-500/60';
+    const chipActive = inFullscreen
+      ? 'bg-amber-500 text-zinc-950 border-amber-500 font-bold'
+      : 'bg-zinc-900 text-white dark:bg-amber-500 dark:text-zinc-950 border-zinc-900 dark:border-amber-500 font-bold';
+    const isMakeResult =
+      activePossession?.result === '2pt_make' ||
+      activePossession?.result === '3pt_make' ||
+      activePossession?.result === 'and_1';
+    const isMissResult = activePossession?.result === '2pt_miss' || activePossession?.result === '3pt_miss';
+    const isShotResult = isMakeResult || isMissResult;
+
+    return (
+      <div className="space-y-2">
+        {/* Header Row */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 text-xs font-bold">
+              <Clock className="w-3.5 h-3.5 text-amber-500" />
+              {inFullscreen ? 'Full-Screen Tagger' : 'Watch & Tag Live'}
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 dark:text-amber-300 text-[11px] font-mono tabular-nums font-semibold">
+              <MapPin className="w-3 h-3" />
+              {currentClip ? `Part ${safeClipIndex + 1} @ ${formatVideoTimestamp(liveTimeSec)}` : 'No video loaded'}
+            </span>
+            {inFullscreen && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 text-xs font-mono tabular-nums font-bold">
+                <span className="text-emerald-400">Us {scoreSummary.us}</span>
+                <span className="text-zinc-400">–</span>
+                <span className="text-sky-400">Opp {scoreSummary.opp}</span>
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1">
+            {/* Us / Opp Toggle */}
+            <div
+              className={`inline-flex rounded-md border overflow-hidden ${
+                inFullscreen ? 'border-white/20' : 'border-zinc-200 dark:border-zinc-700'
+              }`}
+            >
+              {(['us', 'opponent'] as const).map((side) => (
+                <button
+                  key={side}
+                  type="button"
+                  onClick={() => setLiveSide(side)}
+                  title="Switch possession side (Q)"
+                  className={`px-2 py-1 text-[11px] font-bold cursor-pointer ${
+                    liveSide === side ? chipActive : chipIdle
+                  }`}
+                >
+                  {side === 'us' ? 'Us' : 'Opp'}
+                </button>
+              ))}
+            </div>
+
+            {/* Auto-Flip Possession Side Toggle */}
+            <button
+              type="button"
+              onClick={() => setAutoFlipSide((v) => !v)}
+              title="Automatically flip Us/Opp after makes, turnovers, steals, stops, and defensive rebounds"
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer ${
+                autoFlipSide ? chipActive : chipIdle
+              }`}
+            >
+              <ArrowLeftRight className="w-3 h-3" />
+              <span>Auto-Flip</span>
+            </button>
+
+            {/* Quick Quarter Pills */}
+            <div className="inline-flex items-center gap-0.5">
+              {([1, 2, 3, 4, 5] as const).map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => setLivePeriod(q)}
+                  className={`px-1.5 py-1 rounded text-[11px] font-mono border cursor-pointer ${
+                    livePeriod === q ? chipActive : chipIdle
+                  }`}
+                >
+                  {q === 5 ? 'OT' : `Q${q}`}
+                </button>
+              ))}
+            </div>
+
+            {/* Phase & Defense Compact Selects */}
+            <select
+              value={livePhase}
+              onChange={(e) => setLivePhase(e.target.value as PossessionPhase)}
+              aria-label="Live phase selector"
+              className={`h-7 px-1.5 rounded-md border text-[11px] ${subSurface}`}
+            >
+              {Object.entries(PHASE_LABELS).map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={liveDefense}
+              onChange={(e) => setLiveDefense(e.target.value as DefenseType)}
+              aria-label="Live defense selector"
+              className={`h-7 px-1.5 rounded-md border text-[11px] ${subSurface}`}
+            >
+              {Object.entries(DEFENSE_LABELS).map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+
+            {/* Hotkeys Toggle */}
+            <button
+              type="button"
+              onClick={() => setHotkeysEnabled((v) => !v)}
+              title="Toggle single-key tagging hotkeys (1-5, X, Z, O, B, G, K, T, V, U, Q, Backspace)"
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer ${
+                hotkeysEnabled ? chipActive : chipIdle
+              }`}
+            >
+              <Keyboard className="w-3 h-3" />
+              <span className="hidden sm:inline">Keys</span>
+            </button>
+
+            {/* Undo Last */}
+            <button
+              type="button"
+              disabled={possessions.length === 0}
+              onClick={handleUndoLastPossession}
+              title="Undo last tagged possession (Backspace)"
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${chipIdle}`}
+            >
+              <Undo2 className="w-3 h-3" />
+              <span>Undo</span>
+            </button>
+
+            {!inFullscreen ? (
+              <button
+                type="button"
+                disabled={!clips.length}
+                onClick={() => apiRef.current?.toggleFullscreen?.()}
+                title="Open full-screen video player with floating possession & stat HUD (F)"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[11px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Maximize2 className="w-3 h-3" />
+                <span>Full Screen Tagging</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setFsHudDock((d) => (d === 'bottom' ? 'right' : 'bottom'))}
+                  title="Switch HUD dock position (Bottom bar vs Right side)"
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer ${chipIdle}`}
+                >
+                  {fsHudDock === 'bottom' ? <PanelRight className="w-3 h-3" /> : <PanelBottom className="w-3 h-3" />}
+                  <span>{fsHudDock === 'bottom' ? 'Right' : 'Bottom'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFsHudExpanded(false)}
+                  title="Minimize HUD overlay while watching (H)"
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer ${chipIdle}`}
+                >
+                  <span>Hide [H]</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => apiRef.current?.toggleFullscreen?.()}
+                  title="Exit full screen (F or Esc)"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold cursor-pointer"
+                >
+                  <Minimize2 className="w-3 h-3" />
+                  <span>Exit</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Fullscreen Segment Switcher when multi-file film is active */}
+        {inFullscreen && clips.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1 text-[11px]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mr-1">Segment:</span>
+            {clips.map((c, idx) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => selectSegment(idx, 0)}
+                className={`px-2 py-0.5 rounded font-mono border cursor-pointer ${
+                  idx === safeClipIndex ? chipActive : chipIdle
+                }`}
+              >
+                Part {idx + 1}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 1-Click Play / Set Call Pills + Quick Inline Add */}
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider opacity-70 mr-0.5">Play:</span>
+          <button
+            type="button"
+            onClick={() => setLiveSetCall('')}
+            className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border cursor-pointer ${
+              liveSetCall === '' ? chipActive : chipIdle
+            }`}
+          >
+            Default
+          </button>
+          {allSets.map((setName) => (
+            <button
+              key={setName}
+              type="button"
+              onClick={() => setLiveSetCall(liveSetCall === setName ? '' : setName)}
+              className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border cursor-pointer ${
+                liveSetCall === setName ? chipActive : chipIdle
+              }`}
+            >
+              {setName}
+            </button>
+          ))}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = quickSetDraft.trim();
+              if (!trimmed) return;
+              onAddCustomSet(trimmed);
+              setLiveSetCall(trimmed);
+              setQuickSetDraft('');
+            }}
+            className="inline-flex items-center gap-1 ml-1"
+          >
+            <input
+              type="text"
+              value={quickSetDraft}
+              onChange={(e) => setQuickSetDraft(e.target.value)}
+              placeholder="+ Custom play..."
+              className={`h-6 w-28 px-2 rounded-md border text-[11px] ${subSurface}`}
+            />
+            {quickSetDraft.trim() && (
+              <button
+                type="submit"
+                className="px-2 h-6 rounded-md bg-amber-500 text-zinc-950 text-[11px] font-bold cursor-pointer"
+              >
+                Add
+              </button>
+            )}
+          </form>
+        </div>
+
+        {/* Player Jersey Chips */}
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider opacity-70 mr-0.5">Player:</span>
+          <button
+            type="button"
+            onClick={() => setLivePlayerTag('')}
+            className={`px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer ${
+              livePlayerTag === '' ? chipActive : chipIdle
+            }`}
+          >
+            Team / None
+          </button>
+          {roster.map((p) => {
+            const fullTag = formatPlayerOption(p);
+            const active = livePlayerTag === fullTag;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setLivePlayerTag(active ? '' : fullTag)}
+                className={`px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors ${
+                  active ? chipActive : chipIdle
+                }`}
+              >
+                #{p.num} {p.lastName || p.firstName}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 1-Click Live Stat Action Grid */}
+        <div
+          className={`grid gap-1.5 ${
+            inFullscreen && fsHudDock === 'right'
+              ? 'grid-cols-2'
+              : 'grid-cols-3 sm:grid-cols-5 lg:grid-cols-7'
+          }`}
+        >
+          {LIVE_STAT_ACTIONS.map((action) => {
+            const toneCls =
+              action.tone === 'make'
+                ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-600 hover:text-white'
+                : action.tone === 'miss'
+                ? 'border-rose-500/40 bg-rose-500/15 text-rose-700 dark:text-rose-300 hover:bg-rose-600 hover:text-white'
+                : action.tone === 'def'
+                ? 'border-sky-500/40 bg-sky-500/15 text-sky-700 dark:text-sky-300 hover:bg-sky-600 hover:text-white'
+                : 'border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500 hover:text-zinc-950';
+            const fsToneCls = inFullscreen
+              ? action.tone === 'make'
+                ? '!text-emerald-300'
+                : action.tone === 'miss'
+                ? '!text-rose-300'
+                : action.tone === 'def'
+                ? '!text-sky-300'
+                : '!text-amber-300'
+              : '';
+            return (
+              <button
+                key={action.key}
+                type="button"
+                onClick={() => handleLiveStatTag(action)}
+                className={`flex items-center justify-between gap-1 py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${toneCls} ${fsToneCls}`}
+              >
+                <span className="truncate">{action.label}</span>
+                {hotkeysEnabled && (
+                  <kbd className="px-1 py-0 rounded bg-black/15 dark:bg-white/15 text-[9px] font-mono opacity-80 shrink-0">
+                    {action.hotkey}
+                  </kbd>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Smart Post-Tag Follow-Up Bar ("Combo Chain") on Active Play */}
+        {activePossession && (
+          <div
+            className={`pt-2 border-t space-y-1.5 text-[11px] ${
+              inFullscreen ? 'border-white/15' : 'border-zinc-200/80 dark:border-zinc-800/80'
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 font-bold text-amber-500">
+                  <Sparkles className="w-3 h-3" />
+                  Play #{activePossession.playNumber}
+                </span>
+                <span className="opacity-80">
+                  {activePossession.result.replace(/_/g, ' ').toUpperCase()}
+                  {activePossession.points > 0 ? ` (+${activePossession.points})` : ''}
+                  {activePossession.shooter ? ` · ${activePossession.shooter}` : ''}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => updateSelectedPossession({ isHighlight: !activePossession.isHighlight })}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border font-semibold cursor-pointer ${
+                    activePossession.isHighlight ? chipActive : chipIdle
+                  }`}
+                >
+                  <Star
+                    className={`w-3 h-3 ${
+                      activePossession.isHighlight ? 'fill-current' : ''
+                    }`}
+                  />
+                  Highlight
+                </button>
+                {currentClip && (
+                  <button
+                    type="button"
+                    onClick={handleStampActivePlayTime}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/15 font-semibold text-amber-600 dark:text-amber-300 hover:bg-amber-500 hover:text-zinc-950 cursor-pointer"
+                  >
+                    <MapPin className="w-3 h-3" />
+                    Stamp Current Time
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Smart Follow-Up after Make: 1-tap Who Assisted? */}
+            {isMakeResult && roster.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 mr-0.5">
+                  Who Assisted?
+                </span>
+                {activePossession.assister && (
+                  <button
+                    type="button"
+                    onClick={() => updateSelectedPossession({ assister: undefined })}
+                    className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${chipIdle}`}
+                  >
+                    Clear AST
+                  </button>
+                )}
+                {roster.map((p) => {
+                  const fullTag = formatPlayerOption(p);
+                  const active = activePossession.assister === fullTag;
+                  return (
+                    <button
+                      key={`ast-${p.id}`}
+                      type="button"
+                      onClick={() =>
+                        updateSelectedPossession({ assister: active ? undefined : fullTag })
+                      }
+                      className={`px-2 py-0.5 rounded border text-[10px] font-semibold cursor-pointer ${
+                        active ? chipActive : chipIdle
+                      }`}
+                    >
+                      #{p.num} {p.lastName || p.firstName}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Smart Follow-Up after Miss: 1-tap Who Rebounded? */}
+            {isMissResult && roster.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-500 mr-0.5">
+                  Who Rebounded?
+                </span>
+                {(['def', 'off'] as const).map((rt) => (
+                  <button
+                    key={rt}
+                    type="button"
+                    onClick={() => updateSelectedPossession({ reboundType: rt })}
+                    className={`px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase cursor-pointer ${
+                      (activePossession.reboundType || 'def') === rt ? chipActive : chipIdle
+                    }`}
+                  >
+                    {rt === 'off' ? 'OREB' : 'DREB'}
+                  </button>
+                ))}
+                {roster.map((p) => {
+                  const fullTag = formatPlayerOption(p);
+                  const active = activePossession.rebounder === fullTag;
+                  return (
+                    <button
+                      key={`reb-${p.id}`}
+                      type="button"
+                      onClick={() =>
+                        updateSelectedPossession({
+                          rebounder: active ? undefined : fullTag,
+                          reboundType: activePossession.reboundType || 'def',
+                        })
+                      }
+                      className={`px-2 py-0.5 rounded border text-[10px] font-semibold cursor-pointer ${
+                        active ? chipActive : chipIdle
+                      }`}
+                    >
+                      #{p.num} {p.lastName || p.firstName}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 1-Click Shot Zone Pills on Shots */}
+            {isShotResult && (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider opacity-70 mr-0.5">
+                  Shot Zone:
+                </span>
+                {QUICK_SHOT_ZONES.map((z) => {
+                  const active = activePossession.shotZone === z.zone;
+                  return (
+                    <button
+                      key={z.zone}
+                      type="button"
+                      onClick={() =>
+                        updateSelectedPossession({ shotZone: active ? undefined : z.zone })
+                      }
+                      className={`px-2 py-0.5 rounded border text-[10px] font-semibold cursor-pointer ${
+                        active ? chipActive : chipIdle
+                      }`}
+                    >
+                      {z.short}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* General Quick Credit Row when a player chip is active */}
+            {livePlayerTag && !isMakeResult && !isMissResult && (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="opacity-75 mr-1">Credit {livePlayerTag}:</span>
+                <button
+                  type="button"
+                  onClick={() => updateSelectedPossession({ assister: livePlayerTag })}
+                  className={`px-2 py-0.5 rounded border font-semibold cursor-pointer ${chipIdle}`}
+                >
+                  + Assist
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSelectedPossession({ rebounder: livePlayerTag, reboundType: 'off' })}
+                  className={`px-2 py-0.5 rounded border font-semibold cursor-pointer ${chipIdle}`}
+                >
+                  + Off Reb
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSelectedPossession({ rebounder: livePlayerTag, reboundType: 'def' })}
+                  className={`px-2 py-0.5 rounded border font-semibold cursor-pointer ${chipIdle}`}
+                >
+                  + Def Reb
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSelectedPossession({ defender: livePlayerTag })}
+                  className={`px-2 py-0.5 rounded border font-semibold cursor-pointer ${chipIdle}`}
+                >
+                  + Defender
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Recent Plays Ticker (Last 4) */}
+        {recentPossessions.length > 0 && (
+          <div
+            className={`pt-2 border-t flex flex-wrap items-center gap-1.5 text-[11px] ${
+              inFullscreen ? 'border-white/15' : 'border-zinc-200/80 dark:border-zinc-800/80'
+            }`}
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">Recent:</span>
+            {recentPossessions.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => handleJumpToPossession(p)}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border font-mono tabular-nums cursor-pointer ${
+                  activePlay?.id === p.id ? chipActive : chipIdle
+                }`}
+              >
+                <span>#{p.playNumber}</span>
+                <span className="font-sans font-semibold">
+                  {p.points > 0 ? `+${p.points}` : p.result.replace('def_', '').replace(/_/g, ' ').toUpperCase()}
+                </span>
+                {p.shooter || p.rebounder || p.defender ? (
+                  <span className="font-sans opacity-80 truncate max-w-[90px]">
+                    {(p.shooter || p.rebounder || p.defender || '').replace(/^#\S+\s+/, '#')}
+                  </span>
+                ) : null}
+                {typeof p.videoTimeSec === 'number' && (
+                  <span className="opacity-75">@{formatVideoTimestamp(p.videoTimeSec)}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const fullscreenOverlay = readOnly ? (
+    <div className="absolute top-12 right-3 z-20 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-950/85 backdrop-blur-md border border-white/15 text-xs text-zinc-100 shadow-xl">
+      <span className="font-mono tabular-nums font-bold">
+        <span className="text-emerald-400">Us {scoreSummary.us}</span> –{' '}
+        <span className="text-sky-400">Opp {scoreSummary.opp}</span>
+      </span>
+      <button
+        type="button"
+        onClick={() => apiRef.current?.toggleFullscreen?.()}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[11px] font-semibold cursor-pointer"
+      >
+        <Minimize2 className="w-3 h-3" /> Exit
+      </button>
+    </div>
+  ) : !fsHudExpanded ? (
+    <div className="absolute top-12 right-3 z-20 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-950/85 backdrop-blur-md border border-white/15 text-xs text-zinc-100 shadow-2xl">
+      <span className="font-mono tabular-nums font-bold">
+        <span className="text-emerald-400">Us {scoreSummary.us}</span> –{' '}
+        <span className="text-sky-400">Opp {scoreSummary.opp}</span>
+      </span>
+      {recentPossessions[0] && (
+        <span className="hidden sm:inline text-[11px] text-zinc-300">
+          Last: #{recentPossessions[0].playNumber}{' '}
+          {recentPossessions[0].result.replace(/_/g, ' ').toUpperCase()}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={() => setFsHudExpanded(true)}
+        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-[11px] cursor-pointer"
+      >
+        <Sparkles className="w-3 h-3" />
+        Tag Plays &amp; Stats [H]
+      </button>
+      <button
+        type="button"
+        onClick={() => apiRef.current?.toggleFullscreen?.()}
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-zinc-200 text-[11px] font-semibold cursor-pointer"
+      >
+        <Minimize2 className="w-3 h-3" />
+      </button>
+    </div>
+  ) : (
+    <div
+      className={
+        fsHudDock === 'bottom'
+          ? 'absolute inset-x-2 sm:inset-x-3 bottom-28 sm:bottom-24 z-20 max-h-[46dvh] overflow-y-auto rounded-xl border border-white/15 bg-zinc-950/88 backdrop-blur-md p-2.5 sm:p-3 text-zinc-100 shadow-2xl'
+          : 'absolute top-12 right-2 sm:right-3 bottom-28 sm:bottom-24 w-[min(92vw,26rem)] z-20 overflow-y-auto rounded-xl border border-white/15 bg-zinc-950/88 backdrop-blur-md p-2.5 sm:p-3 text-zinc-100 shadow-2xl'
+      }
+    >
+      {renderLiveTaggingControls(true)}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -824,6 +1577,18 @@ export const BasketballFilmRoomView: React.FC<BasketballFilmRoomViewProps> = ({
 
           {!readOnly && (
             <>
+              {clips.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => apiRef.current?.toggleFullscreen?.()}
+                  title="Watch & tag possessions, play calls, and stats in Full Screen (F)"
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-zinc-900 dark:bg-amber-500 text-white dark:text-zinc-950 text-xs font-bold cursor-pointer hover:opacity-90 transition-opacity"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Full Screen Tagging</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setLinkOpen(true)}
@@ -901,6 +1666,9 @@ export const BasketballFilmRoomView: React.FC<BasketballFilmRoomViewProps> = ({
                     }
               }
               apiRef={apiRef}
+              timelinePins={timelinePins}
+              fullscreenOverlay={fullscreenOverlay}
+              onFullscreenChange={setIsPlayerFullscreen}
               maxVideoHeight="calc(100dvh - 18rem)"
             />
           </div>
@@ -1009,210 +1777,10 @@ export const BasketballFilmRoomView: React.FC<BasketballFilmRoomViewProps> = ({
             </div>
           )}
 
-          {/* Live Watch & Tag Bar */}
+          {/* Live Watch & Tag Bar (shared with Full-Screen Tagging HUD) */}
           {!readOnly && (
-            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1 text-xs font-bold text-zinc-800 dark:text-zinc-100">
-                    <Clock className="w-3.5 h-3.5 text-amber-500" />
-                    Watch &amp; Tag Live
-                  </span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[11px] font-mono tabular-nums font-semibold">
-                    <MapPin className="w-3 h-3" />
-                    {currentClip
-                      ? `Part ${safeClipIndex + 1} @ ${formatVideoTimestamp(liveTimeSec)}`
-                      : 'No video loaded'}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700 overflow-hidden">
-                    {(['us', 'opponent'] as const).map((side) => (
-                      <button
-                        key={side}
-                        type="button"
-                        onClick={() => setLiveSide(side)}
-                        className={`px-2 py-1 text-[11px] font-bold cursor-pointer ${
-                          liveSide === side
-                            ? 'bg-zinc-900 text-white dark:bg-amber-500 dark:text-zinc-950'
-                            : 'bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-300'
-                        }`}
-                      >
-                        {side === 'us' ? 'Us' : 'Opp'}
-                      </button>
-                    ))}
-                  </div>
-
-                  <select
-                    value={livePeriod}
-                    onChange={(e) => setLivePeriod(Number(e.target.value) as 1 | 2 | 3 | 4 | 5)}
-                    aria-label="Live quarter selector"
-                    className="h-7 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-[11px] font-mono text-zinc-800 dark:text-zinc-200"
-                  >
-                    <option value={1}>Q1</option>
-                    <option value={2}>Q2</option>
-                    <option value={3}>Q3</option>
-                    <option value={4}>Q4</option>
-                    <option value={5}>OT</option>
-                  </select>
-
-                  <select
-                    value={liveSetCall}
-                    onChange={(e) => setLiveSetCall(e.target.value)}
-                    aria-label="Live set call selector"
-                    className="h-7 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-[11px] text-zinc-800 dark:text-zinc-200 max-w-[130px]"
-                  >
-                    <option value="">Default Set</option>
-                    {allSets.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={livePhase}
-                    onChange={(e) => setLivePhase(e.target.value as PossessionPhase)}
-                    aria-label="Live phase selector"
-                    className="h-7 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-[11px] text-zinc-800 dark:text-zinc-200"
-                  >
-                    {Object.entries(PHASE_LABELS).map(([k, label]) => (
-                      <option key={k} value={k}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={liveDefense}
-                    onChange={(e) => setLiveDefense(e.target.value as DefenseType)}
-                    aria-label="Live defense selector"
-                    className="h-7 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-[11px] text-zinc-800 dark:text-zinc-200"
-                  >
-                    {Object.entries(DEFENSE_LABELS).map(([k, label]) => (
-                      <option key={k} value={k}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Player Jersey Chips + Quick Secondary Stat Attach */}
-              <div className="flex flex-wrap items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setLivePlayerTag('')}
-                  className={`px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer ${
-                    livePlayerTag === ''
-                      ? 'bg-zinc-900 text-white dark:bg-amber-500 dark:text-zinc-950 border-zinc-900 dark:border-amber-500'
-                      : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300'
-                  }`}
-                >
-                  Team / No Player
-                </button>
-                {roster.map((p) => {
-                  const fullTag = formatPlayerOption(p);
-                  const active = livePlayerTag === fullTag;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setLivePlayerTag(active ? '' : fullTag)}
-                      className={`px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors ${
-                        active
-                          ? 'bg-zinc-900 text-white dark:bg-amber-500 dark:text-zinc-950 border-zinc-900 dark:border-amber-500'
-                          : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-200 hover:border-amber-500/60'
-                      }`}
-                    >
-                      #{p.num} {p.lastName || p.firstName}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* 1-Click Live Stat Action Grid */}
-              <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-7 gap-1.5">
-                {LIVE_STAT_ACTIONS.map((action) => {
-                  const toneCls =
-                    action.tone === 'make'
-                      ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-600 hover:text-white'
-                      : action.tone === 'miss'
-                      ? 'border-rose-500/35 bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:bg-rose-600 hover:text-white'
-                      : action.tone === 'def'
-                      ? 'border-sky-500/35 bg-sky-500/10 text-sky-700 dark:text-sky-300 hover:bg-sky-600 hover:text-white'
-                      : 'border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500 hover:text-zinc-950';
-                  return (
-                    <button
-                      key={action.key}
-                      type="button"
-                      onClick={() => handleLiveStatTag(action)}
-                      className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${toneCls}`}
-                    >
-                      {action.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Quick Attach to Selected Possession */}
-              {activePossession && (
-                <div className="pt-2 border-t border-zinc-200/80 dark:border-zinc-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                  <span className="text-zinc-500 dark:text-zinc-400">
-                    Active Play <b className="text-zinc-800 dark:text-zinc-200">#{activePossession.playNumber}</b>
-                    {livePlayerTag ? ` · Credit ${livePlayerTag}:` : ' · Pick a player chip above to quick-credit'}
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1">
-                    {livePlayerTag && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => updateSelectedPossession({ assister: livePlayerTag })}
-                          className="px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 font-semibold text-zinc-700 dark:text-zinc-200 hover:border-amber-500 cursor-pointer"
-                        >
-                          + Assist
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateSelectedPossession({ rebounder: livePlayerTag, reboundType: 'off' })
-                          }
-                          className="px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 font-semibold text-zinc-700 dark:text-zinc-200 hover:border-amber-500 cursor-pointer"
-                        >
-                          + Off Reb
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateSelectedPossession({ rebounder: livePlayerTag, reboundType: 'def' })
-                          }
-                          className="px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 font-semibold text-zinc-700 dark:text-zinc-200 hover:border-amber-500 cursor-pointer"
-                        >
-                          + Def Reb
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateSelectedPossession({ defender: livePlayerTag })}
-                          className="px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 font-semibold text-zinc-700 dark:text-zinc-200 hover:border-amber-500 cursor-pointer"
-                        >
-                          + Defender
-                        </button>
-                      </>
-                    )}
-                    {currentClip && (
-                      <button
-                        type="button"
-                        onClick={handleStampActivePlayTime}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-500 hover:text-zinc-950 cursor-pointer"
-                      >
-                        <MapPin className="w-3 h-3" />
-                        Stamp Current Time
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3">
+              {renderLiveTaggingControls(false)}
             </div>
           )}
 

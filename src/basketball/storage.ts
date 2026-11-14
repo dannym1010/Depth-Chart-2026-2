@@ -1865,6 +1865,25 @@ export function resolvePossessionVideoTarget(
   return { clipIndex, seekSec };
 }
 
+/**
+ * Determine the next teamSide after a live-tagged event when autoFlipSide is enabled.
+ * Offensive rebounds, shot misses (awaiting rebound), blocks, and fouls drawn keep possession;
+ * makes, turnovers, defensive rebounds, steals, and stops flip possession.
+ */
+export function nextPossessionSideAfterEvent(
+  currentSide: 'us' | 'opponent',
+  result: PossessionResult,
+  reboundType?: 'off' | 'def',
+  autoFlip: boolean = false
+): 'us' | 'opponent' {
+  if (!autoFlip) return currentSide;
+  if (result === 'def_reb' && reboundType === 'off') return currentSide;
+  if (result === '2pt_miss' || result === '3pt_miss' || result === 'foul_drawn' || result === 'def_block') {
+    return currentSide;
+  }
+  return currentSide === 'us' ? 'opponent' : 'us';
+}
+
 /** Determine whether a visitor may enter the Court Studio workspace or must see the sign-in / pending gate. */
 export function canAccessBasketballWorkspace(
   email: string | null | undefined,
